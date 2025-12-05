@@ -405,6 +405,25 @@ export function optimizeExcalidrawCode(codeString) {
         }
 
         needsOptimization = true;
+
+        // Normalize linear element points to avoid "Linear element is not normalized" runtime errors
+        // Excalidraw expects linear elements to have points starting at [0, 0] and
+        // subsequent points expressed as offsets from that origin. Since we just
+        // recomputed x, y, width, height, any existing `points` on the element may
+        // now be inconsistent and trigger the error when editing / rotating.
+        //
+        // Here we reset `points` to a simple 2‑point line that matches the new
+        // width/height so Excalidraw's invariants are satisfied.
+        const dx = typeof optimized.width === 'number' && isFinite(optimized.width)
+          ? optimized.width
+          : 0;
+        const dy = typeof optimized.height === 'number' && isFinite(optimized.height)
+          ? optimized.height
+          : 0;
+        optimized.points = [
+          [0, 0],
+          [dx, dy],
+        ];
       }
 
       // Fix Excalidraw rendering bug: line-type elements with width 0 should be 1

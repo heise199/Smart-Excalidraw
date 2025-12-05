@@ -36,6 +36,9 @@ jsonschema==4.20.0
 # 日志和监控
 loguru==0.7.2
 
+# 布局引擎
+networkx==3.2.1
+
 # 开发工具
 pytest==7.4.3
 pytest-asyncio==0.21.1

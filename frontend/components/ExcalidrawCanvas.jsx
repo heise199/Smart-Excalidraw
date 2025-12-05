@@ -278,6 +278,17 @@ export default function ExcalidrawCanvas({ elements = [] }) {
       }
     }
     
+    // For linear elements (arrow / line), ensure we don't carry over any stale `points`
+    // coming from the generated JSON. `convertToExcalidrawElements` expects
+    // Skeleton data (x, y, width, height, start, end, etc.) and will compute
+    // normalized `points` internally. Passing inconsistent `points` can lead to
+    // "Linear element is not normalized" runtime errors when editing.
+    if (converted.type === 'arrow' || converted.type === 'line') {
+      if (converted.points) {
+        delete converted.points;
+      }
+    }
+    
     // Handle text element
     if (converted.type === 'text') {
       // Ensure text property exists and is a valid string

@@ -13,6 +13,10 @@ export async function getAllConfigs() {
     return await fetchAllConfigs();
   } catch (error) {
     console.error('Failed to load configs:', error);
+    // 如果是连接错误，仍然返回空配置，但记录详细错误
+    if (error.message && error.message.includes('无法连接')) {
+      console.warn('后端服务未运行，使用空配置。请启动后端服务。');
+    }
     return { providers: [], currentProviderId: null };
   }
 }

@@ -147,7 +147,7 @@ cp .env.example .env
 ### 3. 启动服务
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000 --host 0.0.0.0
 ```
 
 ### 4. 访问文档

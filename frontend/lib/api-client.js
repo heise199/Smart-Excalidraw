@@ -78,14 +78,39 @@ export async function fetchModels(type, baseUrl, apiKey) {
  * @returns {Promise<Object>} 配置对象 { providers, currentProviderId }
  */
 export async function getAllConfigs() {
-  const response = await fetch(`${API_BASE}/config`);
+  const url = `${API_BASE}/config`;
+  
+  try {
+    const response = await fetch(url);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      // 如果是 404，提供更详细的错误信息
+      if (response.status === 404) {
+        throw new Error(
+          `后端 API 未找到。请确保：\n` +
+          `1. 后端服务正在运行 (${BACKEND_URL})\n` +
+          `2. 后端路由已正确注册 (/api/v1/config)\n` +
+          `3. 环境变量 NEXT_PUBLIC_BACKEND_URL 已正确设置`
+        );
+      }
+      
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.detail || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    // 如果是网络错误，提供更友好的提示
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(
+        `无法连接到后端服务 (${BACKEND_URL})。请确保：\n` +
+        `1. 后端服务正在运行\n` +
+        `2. 后端地址配置正确\n` +
+        `3. 没有防火墙阻止连接`
+      );
+    }
+    throw error;
   }
-
-  return await response.json();
 }
 
 /**
@@ -128,6 +153,8 @@ export async function checkBackendConnection() {
     return false;
   }
 }
+
+
 
 
 

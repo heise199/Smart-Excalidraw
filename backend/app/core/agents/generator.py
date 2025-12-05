@@ -1,7 +1,6 @@
 """
 生成智能体 - 根据规划生成 Excalidraw 代码
 """
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models import BaseLanguageModel
 from typing import Dict, Any, AsyncIterator
 from app.utils.prompts import get_system_prompt, get_user_prompt
@@ -11,6 +10,12 @@ class GeneratorAgent:
     """生成智能体"""
     
     def __init__(self, llm: BaseLanguageModel):
+        """
+        初始化生成智能体
+        
+        Args:
+            llm: 语言模型
+        """
         self.llm = llm
     
     async def generate(

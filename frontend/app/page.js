@@ -29,6 +29,7 @@ export default function Home() {
   const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true); // Control left panel visibility
   const [apiError, setApiError] = useState(null);
   const [jsonError, setJsonError] = useState(null);
+  const [generationProgress, setGenerationProgress] = useState({ message: '正在生成图表...', progress: null });
 
   // Load config on mount and when config modal closes
   const loadConfigs = async () => {
@@ -41,6 +42,10 @@ export default function Home() {
       setAllConfigs(allProviderConfigs);
     } catch (error) {
       console.error('Failed to load configs:', error);
+      // 如果是连接错误，显示友好的提示
+      if (error.message && (error.message.includes('无法连接') || error.message.includes('后端 API 未找到'))) {
+        setApiError(`配置加载失败：${error.message}`);
+      }
     }
   };
 
@@ -618,6 +623,7 @@ export default function Home() {
     setIsGenerating(true);
     setApiError(null); // Clear previous errors
     setJsonError(null); // Clear previous JSON errors
+    setGenerationProgress({ message: '正在生成图表...', progress: null }); // Reset progress
 
     try {
       // 处理图片输入
@@ -704,6 +710,14 @@ export default function Home() {
             try {
               const data = JSON.parse(trimmed.slice(6));
               
+              // 处理 progress 事件 - 显示进度
+              if (currentEvent === 'progress' && data.stage) {
+                setGenerationProgress({
+                  message: data.message || '正在处理...',
+                  progress: data.progress || null
+                });
+              }
+              
               // 处理 chunk 事件 - 实时更新代码
               // 流式过程中只做基本清理，不尝试解析不完整的 JSON
               if (currentEvent === 'chunk' && data.content) {
@@ -714,6 +728,7 @@ export default function Home() {
               
               // 处理 done 事件 - 后端返回的最终优化代码
               if (currentEvent === 'done' && data.code) {
+                setGenerationProgress({ message: '完成！', progress: 100 });
                 accumulatedCode = data.code;
                 const processedCode = postProcessExcalidrawCode(accumulatedCode);
                 setGeneratedCode(processedCode);
@@ -744,6 +759,7 @@ export default function Home() {
 
       // 如果流式响应中没有收到 done 事件，手动处理
       if (accumulatedCode) {
+        setGenerationProgress({ message: '完成！', progress: 100 });
         const processedCode = postProcessExcalidrawCode(accumulatedCode);
         tryParseAndApply(processedCode);
 
@@ -753,6 +769,7 @@ export default function Home() {
         tryParseAndApply(optimizedCode);
       }
     } catch (error) {
+      setGenerationProgress({ message: '生成失败', progress: null });
       console.error('Error generating code:', error);
       // Check if it's a network error
       if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
@@ -762,6 +779,10 @@ export default function Home() {
       }
     } finally {
       setIsGenerating(false);
+      // 延迟重置进度，让用户看到完成状态
+      setTimeout(() => {
+        setGenerationProgress({ message: '正在生成图表...', progress: null });
+      }, 1000);
     }
   };
 
@@ -1040,8 +1061,33 @@ export default function Home() {
         )}
 
         {/* Right Panel - Excalidraw Canvas */}
-        <div style={{ width: isLeftPanelVisible ? `${100 - leftPanelWidth}%` : '100%' }} className="bg-gray-50">
+        <div style={{ width: isLeftPanelVisible ? `${100 - leftPanelWidth}%` : '100%' }} className="bg-gray-50 relative">
           <ExcalidrawCanvas elements={elements} />
+          
+          {/* Progress Overlay */}
+          {isGenerating && (
+            <div className="absolute top-4 left-4 right-4 z-50">
+              <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin"></div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-900">{generationProgress.message}</p>
+                    {generationProgress.progress !== null && (
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                          <div 
+                            className="bg-gray-900 h-1.5 rounded-full transition-all duration-300 ease-out"
+                            style={{ width: `${generationProgress.progress}%` }}
+                          ></div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{generationProgress.progress}%</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
