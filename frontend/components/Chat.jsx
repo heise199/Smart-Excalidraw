@@ -33,7 +33,7 @@ const CHART_TYPES = {
   infographic: '信息图'
 };
 
-export default function Chat({ onSendMessage, isGenerating }) {
+export default function Chat({ onSendMessage, isGenerating, plannerOutput, conversationHistory = [], isModifyMode, onToggleModifyMode, hasExistingChart, onOpenCodeEditor, hasCode }) {
   const [activeTab, setActiveTab] = useState('text'); // 'text', 'file', or 'image'
   const [input, setInput] = useState('');
   const [chartType, setChartType] = useState('auto'); // Selected chart type
@@ -169,10 +169,53 @@ export default function Chat({ onSendMessage, isGenerating }) {
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      {/* <div className="px-4 py-3 bg-white border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700">输入</h3>
-      </div> */}
+      {/* Mode Toggle & Conversation History */}
+      <div className="flex-shrink-0 border-b border-gray-200 bg-gray-50">
+        {/* Mode Toggle */}
+        {hasExistingChart && (
+          <div className="px-4 py-2 flex items-center justify-between border-b border-gray-200">
+            <span className="text-xs text-gray-600">对话模式：</span>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => onToggleModifyMode(false)}
+                className={`px-3 py-1 text-xs rounded transition-colors ${
+                  !isModifyMode
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                disabled={isGenerating}
+              >
+                新建
+              </button>
+              <button
+                onClick={() => onToggleModifyMode(true)}
+                className={`px-3 py-1 text-xs rounded transition-colors ${
+                  isModifyMode
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+                disabled={isGenerating}
+              >
+                修改
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* Conversation History */}
+        {conversationHistory.length > 0 && (
+          <div className="px-4 py-2 max-h-32 overflow-y-auto border-b border-gray-200">
+            <div className="space-y-2">
+              {conversationHistory.slice(-3).map((msg, idx) => (
+                <div key={idx} className={`text-xs ${msg.role === 'user' ? 'text-gray-700' : 'text-gray-500'}`}>
+                  <span className="font-medium">{msg.role === 'user' ? '您' : 'AI'}:</span>
+                  <span className="ml-2">{msg.content.length > 50 ? msg.content.substring(0, 50) + '...' : msg.content}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Tab Navigation */}
       <div className="flex border-b border-gray-200 bg-gray-50">
@@ -218,10 +261,29 @@ export default function Chat({ onSendMessage, isGenerating }) {
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Planner Output / Analysis Display */}
+        {plannerOutput && activeTab === 'text' && (
+          <div className="flex-shrink-0 p-4 bg-blue-50 border-b border-blue-100 overflow-y-auto max-h-48 text-sm">
+            <div className="flex items-center space-x-2 mb-2">
+              <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+              <h4 className="font-medium text-blue-900">AI 思考分析</h4>
+            </div>
+            <div className="text-blue-800 whitespace-pre-wrap leading-relaxed">
+              {plannerOutput.analysis || "正在分析需求..."}
+            </div>
+            {plannerOutput.elements && (
+              <div className="mt-2 pt-2 border-t border-blue-200 text-xs text-blue-700">
+                <span>计划生成 {plannerOutput.elements.length} 个元素</span>
+                {plannerOutput.chart_type && <span> · 类型: {plannerOutput.chart_type}</span>}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Text Input Tab */}
         {activeTab === 'text' && (
-          <div className="flex-1 flex flex-col p-4 relative">
+          <div className="flex-1 flex flex-col p-4 relative min-h-0">
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
               {/* Chart Type Selector */}
               <div className="mb-3">
@@ -242,6 +304,18 @@ export default function Chat({ onSendMessage, isGenerating }) {
                   ))}
                 </select>
               </div>
+              
+              {/* Modify Mode Hint */}
+              {isModifyMode && hasExistingChart && (
+                <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                  <div className="flex items-start space-x-2">
+                    <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <span>修改模式：您的输入将基于当前图表进行修改，而不是重新生成。</span>
+                  </div>
+                </div>
+              )}
               <div className="relative flex-1">
                 <textarea
                   ref={textareaRef}

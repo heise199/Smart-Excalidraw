@@ -15,6 +15,29 @@ class ExcalidrawBuilder:
         self.theme_type = theme_type
         self.theme = Theme.get_theme(theme_type)
     
+    def _determine_shape(self, node: Dict[str, Any]) -> str:
+        """根据节点类型或标签确定形状"""
+        label = node.get("label", "").lower()
+        node_type = node.get("type", "").lower()
+        shape = node.get("shape", "").lower()
+
+        # 如果已经指定了有效形状，直接使用
+        if shape in ["rectangle", "ellipse", "diamond"]:
+            return shape
+
+        # 根据标签推断
+        if label in ["开始", "结束", "start", "end", "stop", "流程开始", "流程结束"]:
+            return "ellipse"
+        elif "判断" in label or "是否" in label or "?" in label or node_type == "decision":
+            return "diamond"
+        elif "数据库" in label or "storage" in label or node_type == "database":
+            # Excalidraw 原生不支持数据库形状，用圆柱体近似或保持矩形
+            # 这里为了简单，暂时用 ellipse 或 rectangle
+            return "ellipse" 
+        
+        # 默认矩形
+        return "rectangle"
+
     def build(
         self,
         structure: Dict[str, Any],
@@ -47,12 +70,19 @@ class ExcalidrawBuilder:
         for node in layout_nodes:
             node_id = node.get("id")
             label = node.get("label", "")
-            shape = node.get("shape", "rectangle")
+            # 自动推断形状
+            shape = self._determine_shape(node)
+            
             x = node.get("x", 0)
             y = node.get("y", 0)
             width = node.get("width", 200)
             height = node.get("height", 80)
             
+            # 菱形节点调整宽高比例
+            if shape == "diamond":
+                width = max(width, 120)
+                height = max(height, 120)
+
             # 生成 Excalidraw ID
             excalidraw_id = f"node-{uuid.uuid4().hex[:8]}"
             node_id_map[node_id] = excalidraw_id
@@ -74,6 +104,25 @@ class ExcalidrawBuilder:
                 shape_color = Theme.get_shape_color(shape, self.theme_type if not theme_type else theme_type)
                 corner_radius = theme.get("cornerRadius", 0)
                 
+                # 特殊处理：韦恩图的集合圆圈需要半透明
+                fill_style = "hachure"
+                stroke_width = theme.get("lineWidth", 2)
+                
+                # 如果是 LayoutEngine 标记为 transparent 的（针对韦恩图集合）
+                if node.get("backgroundColor") == "transparent":
+                    shape_color = "#00000000" # 完全透明背景，或者使用半透明色
+                    # 为了让韦恩图好看，我们使用半透明填充
+                    # Excalidraw 没有直接的 rgba 背景色支持得很好，通常通过 fillStyle 控制
+                    # 这里我们给一个半透明的描边色作为背景色模拟，或者直接不填充
+                    fill_style = "solid" 
+                    # 实际上 Excalidraw 的 backgroundColor 支持 hex alpha
+                    # 给几个好看的半透明色
+                    colors = ["#ff000020", "#00ff0020", "#0000ff20", "#ffff0020"]
+                    # 根据 ID hash 选一个颜色，避免每次都一样
+                    color_idx = abs(hash(node_id)) % len(colors)
+                    shape_color = colors[color_idx]
+                    stroke_width = 3
+
                 element = {
                     "id": excalidraw_id,
                     "type": shape,
@@ -83,8 +132,8 @@ class ExcalidrawBuilder:
                     "height": float(height),
                     "backgroundColor": shape_color,
                     "strokeColor": theme.get("primary", "#1976d2"),
-                    "strokeWidth": theme.get("lineWidth", 2),
-                    "fillStyle": "hachure",
+                    "strokeWidth": stroke_width,
+                    "fillStyle": fill_style,
                     "label": {
                         "text": label,
                         "fontSize": 16,
@@ -101,6 +150,10 @@ class ExcalidrawBuilder:
             elements.append(element)
         
         # 2. 创建箭头/连线元素
+        # 对于韦恩图，不生成箭头，因为韦恩图是通过空间重叠来表达关系的
+        if structure.get("type") == "venn":
+            return json.dumps(elements, ensure_ascii=False, indent=2)
+
         for edge in edges:
             from_id = edge.get("from")
             to_id = edge.get("to")
@@ -153,6 +206,9 @@ class ExcalidrawBuilder:
             )
             
             # 创建箭头元素（使用主题颜色）
+            # 优先使用 elbow (折线) 样式，对于流程图更整洁
+            arrow_type = "elbow" 
+            
             arrow = {
                 "id": f"arrow-{uuid.uuid4().hex[:8]}",
                 "type": "arrow",
@@ -163,6 +219,9 @@ class ExcalidrawBuilder:
                 "strokeColor": theme.get("lineColor", theme.get("primary", "#1976d2")),
                 "strokeWidth": theme.get("lineWidth", 2),
                 "endArrowhead": "arrow",
+                # 设置线条样式为折线
+                "strokeStyle": "solid",
+                "roundness": { "type": 2 }, # 稍微圆角
                 "start": {
                     "id": from_excalidraw_id
                 },
@@ -188,41 +247,29 @@ class ExcalidrawBuilder:
         node_x: float, node_y: float, node_w: float, node_h: float,
         target_x: float, target_y: float
     ) -> tuple:
-        """计算节点边缘上的连接点"""
+        """计算节点边缘上的连接点 (Snap-to-grid 风格)"""
         center_x = node_x + node_w / 2
         center_y = node_y + node_h / 2
         
         dx = target_x - center_x
         dy = target_y - center_y
         
-        # 如果 dx 和 dy 都为 0，返回右边缘中心
-        if abs(dx) < 0.001 and abs(dy) < 0.001:
-            return (node_x + node_w, center_y)
+        # 优先选择 上下左右 四个中点
         
-        # 计算与边缘的交点
-        # 简化：使用矩形边缘
+        # 水平方向为主
         if abs(dx) > abs(dy):
-            # 水平方向为主
             if dx > 0:
-                # 右边缘
-                y = center_y + dy * (node_w / 2) / abs(dx) if abs(dx) > 0.001 else center_y
-                y = max(node_y, min(node_y + node_h, y))
-                return (node_x + node_w, y)
+                # 右边缘中点
+                return (node_x + node_w, center_y)
             else:
-                # 左边缘
-                y = center_y + dy * (node_w / 2) / abs(dx) if abs(dx) > 0.001 else center_y
-                y = max(node_y, min(node_y + node_h, y))
-                return (node_x, y)
+                # 左边缘中点
+                return (node_x, center_y)
         else:
             # 垂直方向为主
             if dy > 0:
-                # 下边缘
-                x = center_x + dx * (node_h / 2) / abs(dy) if abs(dy) > 0.001 else center_x
-                x = max(node_x, min(node_x + node_w, x))
-                return (x, node_y + node_h)
+                # 下边缘中点
+                return (center_x, node_y + node_h)
             else:
-                # 上边缘
-                x = center_x + dx * (node_h / 2) / abs(dy) if abs(dy) > 0.001 else center_x
-                x = max(node_x, min(node_x + node_w, x))
-                return (x, node_y)
+                # 上边缘中点
+                return (center_x, node_y)
 

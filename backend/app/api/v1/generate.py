@@ -46,7 +46,7 @@ async def generate_chart(request: GenerateRequest):
         
         # 1. 规划阶段
         logger.info("开始规划阶段")
-        plan = await planner.plan(request.user_input, request.chart_type.value)
+        plan = await planner.plan(request.user_input, request.chart_type.value, request.current_code)
         logger.info(f"规划完成: {plan}")
         
         # 2. 生成结构阶段
@@ -57,6 +57,12 @@ async def generate_chart(request: GenerateRequest):
             # 流式响应
             async def generate_stream():
                 nonlocal accumulated_structure
+                
+                # 0. 发送规划结果（Analysis）
+                yield {
+                    "event": "plan",
+                    "data": json.dumps(plan)
+                }
                 
                 # 1. 规划阶段进度（已完成）
                 

@@ -152,6 +152,13 @@ def get_chart_type_name(chart_type: str) -> str:
 def format_plan(plan: Dict[str, Any]) -> str:
     """格式化规划信息"""
     lines = []
+    
+    # 添加需求分析（如果有）
+    if "analysis" in plan:
+        lines.append(f"## 需求分析与意图揣测")
+        lines.append(f"{plan['analysis']}")
+        lines.append("")  # 空行分隔
+        
     if "chart_type" in plan:
         lines.append(f"- 图表类型: {plan['chart_type']}")
     if "layout" in plan:

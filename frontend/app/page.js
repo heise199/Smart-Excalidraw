@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Chat from '@/components/Chat';
-import CodeEditor from '@/components/CodeEditor';
+import FloatingCodeEditor from '@/components/FloatingCodeEditor';
 import ConfigModal from '@/components/ConfigModal';
 import ContactModal from '@/components/ContactModal';
 import { getConfig, getAllConfigs, setCurrentProvider, isConfigValid } from '@/lib/config';
@@ -30,6 +30,10 @@ export default function Home() {
   const [apiError, setApiError] = useState(null);
   const [jsonError, setJsonError] = useState(null);
   const [generationProgress, setGenerationProgress] = useState({ message: '正在生成图表...', progress: null });
+  const [plannerOutput, setPlannerOutput] = useState(null); // Store planner analysis
+  const [conversationHistory, setConversationHistory] = useState([]); // 对话历史
+  const [isModifyMode, setIsModifyMode] = useState(false); // 是否为修改模式
+  const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false); // 代码编辑器悬浮窗开关
 
   // Load config on mount and when config modal closes
   const loadConfigs = async () => {
@@ -624,6 +628,7 @@ export default function Home() {
     setApiError(null); // Clear previous errors
     setJsonError(null); // Clear previous JSON errors
     setGenerationProgress({ message: '正在生成图表...', progress: null }); // Reset progress
+    setPlannerOutput(null); // Reset planner output for new generation
 
     try {
       // 处理图片输入
@@ -636,6 +641,18 @@ export default function Home() {
         textInput = userMessage.text || '';
       }
 
+      // 判断是否为修改模式：如果有已生成的代码，且用户没有明确要求新建，则使用修改模式
+      const shouldUseModifyMode = isModifyMode && generatedCode && generatedCode.trim().length > 0;
+      const currentCodeForRequest = shouldUseModifyMode ? generatedCode : null;
+
+      // 添加用户消息到对话历史
+      const userMsg = {
+        role: 'user',
+        content: textInput,
+        timestamp: new Date().toISOString()
+      };
+      setConversationHistory(prev => [...prev, userMsg]);
+
       // Call backend API with streaming
       const { generateChart } = await import('@/lib/api-client');
       const response = await generateChart({
@@ -643,6 +660,7 @@ export default function Home() {
         userInput: textInput,
         chartType,
         image: imageData,
+        currentCode: currentCodeForRequest, // 只在修改模式下传递当前代码
         stream: true,
       });
 
@@ -705,11 +723,16 @@ export default function Home() {
             continue;
           }
 
-          // 处理 data 行
+              // 处理 data 行
           if (trimmed.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmed.slice(6));
               
+              // 处理 plan 事件 - 显示规划分析
+              if (currentEvent === 'plan') {
+                setPlannerOutput(data);
+              }
+
               // 处理 progress 事件 - 显示进度
               if (currentEvent === 'progress' && data.stage) {
                 setGenerationProgress({
@@ -738,6 +761,15 @@ export default function Home() {
                 const optimizedCode = optimizeExcalidrawCode(processedCode);
                 setGeneratedCode(optimizedCode);
                 tryParseAndApply(optimizedCode);
+                
+                // 添加AI响应到对话历史
+                const aiMsg = {
+                  role: 'assistant',
+                  content: '图表已生成',
+                  timestamp: new Date().toISOString(),
+                  plannerOutput: plannerOutput
+                };
+                setConversationHistory(prev => [...prev, aiMsg]);
               }
               
               // 处理错误
@@ -1009,31 +1041,34 @@ export default function Home() {
             </div>
           )}
 
-          {/* Input Section */}
-          <div style={{ height: '60%' }} className="overflow-hidden">
+          {/* Input Section - 现在占满整个左侧面板 */}
+          <div className="flex-1 overflow-hidden">
             <Chat
               onSendMessage={handleSendMessage}
               isGenerating={isGenerating}
-            />
-          </div>
-
-          {/* Code Editor Section */}
-          <div style={{ height: '40%' }} className="overflow-hidden">
-            <CodeEditor
-              code={generatedCode}
-              onChange={setGeneratedCode}
-              onApply={handleApplyCode}
-              onOptimize={handleOptimizeCode}
-              onClear={handleClearCode}
-              jsonError={jsonError}
-              onClearJsonError={() => setJsonError(null)}
-              isGenerating={isGenerating}
-              isApplyingCode={isApplyingCode}
-              isOptimizingCode={isOptimizingCode}
+              plannerOutput={plannerOutput}
+              conversationHistory={conversationHistory}
+              isModifyMode={isModifyMode}
+              onToggleModifyMode={setIsModifyMode}
+              hasExistingChart={generatedCode && generatedCode.trim().length > 0}
             />
           </div>
           </div>
         )}
+
+        {/* Floating Code Editor */}
+        <FloatingCodeEditor
+          code={generatedCode}
+          onChange={setGeneratedCode}
+          onApply={handleApplyCode}
+          onOptimize={handleOptimizeCode}
+          onClear={handleClearCode}
+          jsonError={jsonError}
+          onClearJsonError={() => setJsonError(null)}
+          isGenerating={isGenerating}
+          isApplyingCode={isApplyingCode}
+          isOptimizingCode={isOptimizingCode}
+        />
 
         {/* Toggle Button for Left Panel */}
         <button
@@ -1104,6 +1139,33 @@ export default function Home() {
         isOpen={isContactModalOpen}
         onClose={() => setIsContactModalOpen(false)}
       />
+      
+      {/* Code Editor Floating Modal */}
+      {isCodeEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={() => setIsCodeEditorOpen(false)}>
+          <div 
+            className="bg-white rounded-lg shadow-2xl w-[90vw] h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CodeEditor
+              code={generatedCode}
+              onChange={setGeneratedCode}
+              onApply={() => {
+                handleApplyCode();
+                setIsCodeEditorOpen(false);
+              }}
+              onOptimize={handleOptimizeCode}
+              onClear={handleClearCode}
+              jsonError={jsonError}
+              onClearJsonError={() => setJsonError(null)}
+              isGenerating={isGenerating}
+              isApplyingCode={isApplyingCode}
+              isOptimizingCode={isOptimizingCode}
+              onClose={() => setIsCodeEditorOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,10 +14,11 @@ const API_BASE = `${BACKEND_URL}/api/v1`;
  * @param {string} params.userInput - 用户输入
  * @param {string} params.chartType - 图表类型
  * @param {Object} params.image - 图片数据（可选）
+ * @param {string} params.currentCode - 现有代码（可选，用于多轮对话）
  * @param {boolean} params.stream - 是否流式响应（默认 true）
  * @returns {Promise<Response>} Fetch Response 对象
  */
-export async function generateChart({ config, userInput, chartType = 'auto', image = null, stream = true }) {
+export async function generateChart({ config, userInput, chartType = 'auto', image = null, currentCode = null, stream = true }) {
   const response = await fetch(`${API_BASE}/generate`, {
     method: 'POST',
     headers: {
@@ -27,6 +28,7 @@ export async function generateChart({ config, userInput, chartType = 'auto', ima
       config,
       userInput,
       chartType,
+      currentCode,
       image: image ? {
         data: image.data,
         mimeType: image.mimeType,

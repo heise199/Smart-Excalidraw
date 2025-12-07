@@ -41,11 +41,22 @@ def get_structure_system_prompt() -> str:
 3. **确保节点 ID 唯一**
 4. **边的 from 和 to 必须引用已存在的节点 ID**
 5. **输出必须是有效的 JSON，不要包含其他文本**
-6. **节点数量限制**：
-   - 流程图：最多 12-15 个节点（避免过长）
-   - 思维导图：最多 20 个节点
-   - 其他类型：根据复杂度合理控制
-7. **保持结构简洁**：优先选择关键步骤，不要生成过于详细的流程
+6. **节点数量**：
+   - 根据实际逻辑复杂度决定节点数量，不强制限制。
+   - 如果流程过长，建议拆分为主要流程和子流程，或使用泳道图/分层结构。
+7. **保持结构线性且清晰**：
+   - 避免生成过于复杂的网状结构。
+   - 尽量减少长距离的跨层跳转（例如从第1步直接跳到第5步）。
+   - 如果流程复杂，请将其拆分为主要流程和次要分支。
+   - **避免循环依赖**，除非逻辑必须。
+
+8. **特定图表类型规则**：
+   - **韦恩图 (venn)**：
+     - 必须区分“集合”和“元素”。
+     - **集合**：shape 必须是 "ellipse"。
+     - **元素**：shape 必须是 "rectangle" 或 "text"。
+     - **不要生成箭头 (edges)**，除非你需要明确指出元素属于哪个集合。
+     - **严禁**使用“生物A”、“集合1”等无意义的代号，**必须**使用规划中提供的具体内容（如“哺乳动物”、“人类”）。
 
 ## 形状选择指南
 
@@ -94,19 +105,51 @@ def get_structure_user_prompt(user_input: str, chart_type: str, plan: Dict[str, 
     
     # 添加规划信息（如果有）
     if plan:
-        prompt_parts.append(f"\n规划信息：")
-        if "chart_type" in plan:
-            prompt_parts.append(f"- 图表类型: {plan['chart_type']}")
-        if "elements" in plan:
-            prompt_parts.append(f"- 元素数量: {len(plan.get('elements', []))}")
-        if "relationships" in plan:
-            prompt_parts.append(f"- 关系数量: {len(plan.get('relationships', []))}")
+        prompt_parts.append(f"\n## 规划信息（必须严格执行）")
+        
+        # 检查是否是修改模式（plan 中包含现有结构信息）
+        if "current_structure" in plan or "现有图表" in str(plan.get("analysis", "")):
+            prompt_parts.append(f"**这是修改模式**：规划中已经包含了现有图表结构，你必须：")
+            prompt_parts.append("1. **完整保留**规划中列出的所有现有节点（除非规划明确标注为"删除"）。")
+            prompt_parts.append("2. **完整保留**规划中列出的所有现有连接关系。")
+            prompt_parts.append("3. 添加规划中标注为"新增"的节点和连接。")
+            prompt_parts.append("4. 只修改规划中明确要求修改的节点内容。")
+        else:
+            prompt_parts.append(f"你必须**完全忠实**地执行以下规划，**严禁**擅自增删节点或修改内容：")
+        
+        prompt_parts.append(format_plan_structure(plan))
+        prompt_parts.append("\n**执行指令**：")
+        prompt_parts.append("1. 将规划中的 `elements` 一一对应转换为 `nodes`。")
+        prompt_parts.append("2. 不要添加规划中没有的节点（例如：不要自作聪明地添加具体例子）。")
+        prompt_parts.append("3. 不要遗漏规划中有的节点。")
+        prompt_parts.append("4. 对于韦恩图 (venn)，**不要生成任何 edges** 数组内容（保持为空），因为韦恩图靠空间位置表达关系。")
     
     # 添加用户输入
     prompt_parts.append(f"\n用户需求：\n{user_input}")
     prompt_parts.append("\n请生成图表的逻辑结构（节点和边），只输出 JSON，不要包含坐标信息。")
     
     return "\n".join(prompt_parts)
+
+
+def format_plan_structure(plan: Dict[str, Any]) -> str:
+    """格式化规划信息供结构生成使用"""
+    lines = []
+    if "chart_type" in plan:
+        lines.append(f"- 图表类型: {plan['chart_type']}")
+    
+    if "elements" in plan:
+        lines.append(f"- 必须包含的节点 ({len(plan['elements'])}个):")
+        for el in plan['elements']:
+            content = el.get('content', '未知内容')
+            el_type = el.get('type', 'unknown')
+            lines.append(f"  * [{el_type}] {content}")
+            
+    if "relationships" in plan:
+        lines.append(f"- 必须包含的关系 ({len(plan['relationships'])}条):")
+        for rel in plan['relationships']:
+            lines.append(f"  * {rel.get('from')} -> {rel.get('to')} ({rel.get('type')})")
+            
+    return "\n".join(lines)
 
 
 def get_chart_type_name(chart_type: str) -> str:

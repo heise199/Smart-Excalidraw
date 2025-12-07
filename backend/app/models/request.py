@@ -76,6 +76,7 @@ class GenerateRequest(BaseModel):
     config: LLMConfig
     user_input: str = Field(..., alias="userInput")
     chart_type: ChartType = Field(ChartType.AUTO, alias="chartType")
+    current_code: Optional[str] = Field(None, alias="currentCode")  # 支持多轮对话：现有代码上下文
     image: Optional[ImageData] = None
     stream: bool = True
     use_mcp: bool = Field(False, alias="useMcp")
