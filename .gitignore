@@ -9,7 +9,15 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-
+/backend/__pycache__/
+/backend/app/__pycache__/
+/backend/app/core/__pycache__/
+/backend/app/core/agents/__pycache__/
+/backend/app/core/llm/__pycache__/
+/backend/app/core/llm/mcp/__pycache__/
+/backend/app/core/llm/mcp/client/__pycache__/
+/backend/app/core/llm/mcp/client/client.pyc
+/backend/app/core/llm/mcp/client/client.pyo
 # testing
 /coverage
 
