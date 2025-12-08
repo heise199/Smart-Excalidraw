@@ -1,7 +1,23 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Editor } from '@monaco-editor/react';
+import dynamic from 'next/dynamic';
+
+// 动态导入 Monaco Editor，避免 SSR 问题并优化加载
+const Editor = dynamic(
+  () => import('@monaco-editor/react').then(mod => mod.Editor),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full bg-gray-50">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto mb-2"></div>
+          <p className="text-sm text-gray-600">加载编辑器...</p>
+        </div>
+      </div>
+    )
+  }
+);
 
 export default function FloatingCodeEditor({ 
   code, 
@@ -21,6 +37,7 @@ export default function FloatingCodeEditor({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const windowRef = useRef(null);
+  const editorValueRef = useRef(code); // 用于跟踪编辑器内部的值，避免不必要的更新
 
   // 初始化位置
   useEffect(() => {
@@ -29,12 +46,10 @@ export default function FloatingCodeEditor({
     }
   }, []);
 
-  // 当有新代码生成时，自动打开窗口（如果之前是关闭的）
+  // 同步外部 code 变化到编辑器内部值
   useEffect(() => {
-    if (code.trim() && !isOpen && !isMinimized) {
-      // 不自动打开，让用户手动打开
-    }
-  }, [code, isOpen, isMinimized]);
+    editorValueRef.current = code;
+  }, [code]);
 
   // 拖拽处理
   const handleMouseDown = (e) => {
@@ -229,9 +244,13 @@ export default function FloatingCodeEditor({
               <div className="flex-1 overflow-hidden" style={{ height: `calc(100% - ${jsonError ? '80px' : '40px'})` }}>
                 <Editor
                   height="100%"
-                  defaultLanguage="javascript"
+                  language="json"
                   value={code}
-                  onChange={(value) => onChange(value || '')}
+                  onChange={(value) => {
+                    const newValue = value || '';
+                    editorValueRef.current = newValue;
+                    onChange(newValue);
+                  }}
                   theme="vs-light"
                   options={{
                     minimap: { enabled: false },
@@ -241,6 +260,15 @@ export default function FloatingCodeEditor({
                     automaticLayout: true,
                     tabSize: 2,
                     wordWrap: 'on',
+                    readOnly: false,
+                    formatOnPaste: true,
+                    formatOnType: true,
+                    quickSuggestions: true,
+                    suggestOnTriggerCharacters: true,
+                  }}
+                  onMount={(editor, monaco) => {
+                    // 编辑器加载完成后的回调
+                    console.log('Monaco Editor mounted successfully');
                   }}
                 />
               </div>

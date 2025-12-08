@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Chat from '@/components/Chat';
 import FloatingCodeEditor from '@/components/FloatingCodeEditor';
@@ -34,6 +34,7 @@ export default function Home() {
   const [conversationHistory, setConversationHistory] = useState([]); // 对话历史
   const [isModifyMode, setIsModifyMode] = useState(false); // 是否为修改模式
   const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false); // 代码编辑器悬浮窗开关
+  const syncCodeTimeoutRef = useRef(null); // 用于防抖同步代码
 
   // Load config on mount and when config modal closes
   const loadConfigs = async () => {
@@ -55,6 +56,13 @@ export default function Home() {
 
   useEffect(() => {
     loadConfigs();
+    
+    // 清理定时器
+    return () => {
+      if (syncCodeTimeoutRef.current) {
+        clearTimeout(syncCodeTimeoutRef.current);
+      }
+    };
   }, []);
 
   // 流式处理函数：只做基本清理，不尝试解析不完整的 JSON
@@ -1097,7 +1105,69 @@ export default function Home() {
 
         {/* Right Panel - Excalidraw Canvas */}
         <div style={{ width: isLeftPanelVisible ? `${100 - leftPanelWidth}%` : '100%' }} className="bg-gray-50 relative">
-          <ExcalidrawCanvas elements={elements} />
+          <ExcalidrawCanvas 
+            elements={elements} 
+            onElementsChange={(updatedElements) => {
+              // 防抖：避免频繁更新导致编辑器重新渲染
+              if (syncCodeTimeoutRef.current) {
+                clearTimeout(syncCodeTimeoutRef.current);
+              }
+              
+              syncCodeTimeoutRef.current = setTimeout(() => {
+                try {
+                  // 检查元素是否真的变化了（比较ID和关键属性）
+                  const currentElementIds = new Set(elements.map(el => el.id).sort());
+                  const updatedElementIds = new Set(updatedElements.map(el => el.id).sort());
+                  
+                  const idsEqual = currentElementIds.size === updatedElementIds.size &&
+                    Array.from(currentElementIds).every(id => updatedElementIds.has(id));
+                  
+                  // 如果ID集合相同，检查是否有属性变化
+                  let hasChanges = !idsEqual;
+                  if (idsEqual) {
+                    hasChanges = updatedElements.some(updatedEl => {
+                      const currentEl = elements.find(el => el.id === updatedEl.id);
+                      if (!currentEl) return true;
+                      
+                      // 比较关键属性
+                      return (
+                        updatedEl.x !== currentEl.x ||
+                        updatedEl.y !== currentEl.y ||
+                        updatedEl.width !== currentEl.width ||
+                        updatedEl.height !== currentEl.height ||
+                        updatedEl.stroke !== currentEl.stroke ||
+                        updatedEl.fill !== currentEl.fill ||
+                        (updatedEl.type === 'text' && updatedEl.text !== currentEl.text) ||
+                        (updatedEl.text && updatedEl.text !== currentEl.text) ||
+                        (updatedEl.x1 !== currentEl.x1) ||
+                        (updatedEl.y1 !== currentEl.y1) ||
+                        (updatedEl.x2 !== currentEl.x2) ||
+                        (updatedEl.y2 !== currentEl.y2)
+                      );
+                    });
+                  }
+                  
+                  if (!hasChanges) {
+                    return; // 没有变化，跳过更新
+                  }
+                  
+                  const jsonString = JSON.stringify(updatedElements, null, 2);
+                  // 只在值真正变化时才更新，避免不必要的重新渲染
+                  setGeneratedCode(prevCode => {
+                    if (prevCode === jsonString) {
+                      return prevCode; // 值相同，不更新
+                    }
+                    return jsonString;
+                  });
+                  // 重要：不要立即更新 elements 状态，这会覆盖 Excalidraw 的撤销栈
+                  // 只在 JSON 更新时更新 elements，让 Excalidraw 自己管理撤销/重做
+                  // setElements(updatedElements); // 注释掉，让 Excalidraw 自己管理状态
+                } catch (error) {
+                  console.error('Error converting elements to JSON:', error);
+                }
+              }, 300); // 减少防抖延迟，让响应更快
+            }}
+          />
           
           {/* Progress Overlay */}
           {isGenerating && (

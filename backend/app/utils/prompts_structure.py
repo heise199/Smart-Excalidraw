@@ -110,9 +110,9 @@ def get_structure_user_prompt(user_input: str, chart_type: str, plan: Dict[str, 
         # 检查是否是修改模式（plan 中包含现有结构信息）
         if "current_structure" in plan or "现有图表" in str(plan.get("analysis", "")):
             prompt_parts.append(f"**这是修改模式**：规划中已经包含了现有图表结构，你必须：")
-            prompt_parts.append("1. **完整保留**规划中列出的所有现有节点（除非规划明确标注为"删除"）。")
+            prompt_parts.append('1. **完整保留**规划中列出的所有现有节点（除非规划明确标注为"删除"）。')
             prompt_parts.append("2. **完整保留**规划中列出的所有现有连接关系。")
-            prompt_parts.append("3. 添加规划中标注为"新增"的节点和连接。")
+            prompt_parts.append('3. 添加规划中标注为"新增"的节点和连接。')
             prompt_parts.append("4. 只修改规划中明确要求修改的节点内容。")
         else:
             prompt_parts.append(f"你必须**完全忠实**地执行以下规划，**严禁**擅自增删节点或修改内容：")

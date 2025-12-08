@@ -18,6 +18,7 @@
 /backend/app/core/llm/mcp/client/__pycache__/
 /backend/app/core/llm/mcp/client/client.pyc
 /backend/app/core/llm/mcp/client/client.pyo
+*.pyc
 # testing
 /coverage
 
