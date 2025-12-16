@@ -94,7 +94,7 @@ Smart-Excalidraw/
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/AXY520/Smart-Excalidraw.git
+git clone https://github.com/heise199/Smart-Excalidraw.git
 cd Smart-Excalidraw
 ```
 
