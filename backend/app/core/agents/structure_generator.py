@@ -80,34 +80,64 @@ class StructureGeneratorAgent:
         """
         # 1. 清理文本
         text = structure_text.strip()
-
-        # 移除 markdown 代码块
-        text = re.sub(r'^```(?:json|javascript|js)?\s*\n?', '', text, flags=re.MULTILINE)
-        text = re.sub(r'\n?```\s*$', '', text, flags=re.MULTILINE)
+        
+        # 移除 <think> 标签内容 (针对 DeepSeek R1 等思考模型)
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         text = text.strip()
 
-        # 提取 JSON 对象
-        json_match = re.search(r'\{[\s\S]*\}', text)
-        if json_match:
-            text = json_match.group(0)
+        # 优先尝试提取 ```json ... ``` 或 ``` ... ``` 代码块
+        # 使用非贪婪匹配 [\s\S]*? 确保只匹配第一个完整的代码块（如果 LLM 输出了多个）
+        # 或者如果有思维链，通常 JSON 在最后
+        code_block_matches = re.findall(r'```(?:json|javascript|js)?\s*([\s\S]*?)\s*```', text)
+        if code_block_matches:
+            # 如果有多个代码块，通常最后一个是最终结果，但也可能第一个是
+            # 这里假设最长的那个或者是包含 "nodes" 的那个是正确的
+            # 简单起见，取最后一个看起来像 JSON 的
+            for block in reversed(code_block_matches):
+                if "{" in block and "nodes" in block:
+                    text = block
+                    break
+            else:
+                # 如果都没找到特征，回退到最后一个
+                text = code_block_matches[-1]
+        
+        text = text.strip()
 
+        # 尝试查找最外层的 JSON 对象 {}
+        # 为了处理可能存在的思维链文本（如果不在代码块中）
         try:
+            # 简单的贪婪匹配可能会匹配过多，这里尝试找到第一个合法的 JSON 结束位置
+            # 但这对 Python 正则较难。
+            # 回退策略：如果直接 loads 失败，尝试正则提取
+             
+            # 移除常见的干扰字符
+            if text.startswith("json"):
+                text = text[4:].strip()
+                
             structure = json.loads(text)
-        except json.JSONDecodeError as e:
-            # 如果完全无法解析 JSON，不再中断整体流程，而是返回一个空结构，
-            # 让后续流程继续执行（只是不会有节点和边）
-            logger.error(f"Failed to parse structure JSON: {e}")
-            logger.debug(f"Structure text: {structure_text[:500]}")
-            logger.warning("使用空结构作为回退结果，避免中断生成流程")
-            return {
-                "type": "flowchart",
-                "nodes": [],
-                "edges": [],
-            }
+        except json.JSONDecodeError:
+            # 正则提取 { ... }
+            json_match = re.search(r'(\{[\s\S]*\})', text)
+            if json_match:
+                try:
+                    structure = json.loads(json_match.group(1))
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse structure JSON from regex match: {e}")
+                    # 最后的尝试：使用 dirtyjson 或简单的清理（这里暂不引入新库）
+                    return self._create_fallback_structure()
+            else:
+                return self._create_fallback_structure()
 
         # 2. 基本类型校验
         if not isinstance(structure, dict):
-            raise ValueError("Structure must be a JSON object")
+            # 可能是列表？
+            if isinstance(structure, list):
+                 logger.warning("Structure is a list, wrapping in flowchart dict")
+                 # 假设列表就是 nodes
+                 structure = {"type": "flowchart", "nodes": structure, "edges": []}
+            else:
+                logger.warning("Structure is not a dict, using fallback")
+                return self._create_fallback_structure()
 
         # 3. 字段兜底
         if "nodes" not in structure or not isinstance(structure.get("nodes"), list):
@@ -119,13 +149,18 @@ class StructureGeneratorAgent:
         if "type" not in structure or not isinstance(structure.get("type"), str):
             structure["type"] = "flowchart"
 
-        # 4. 规范化节点和边，确保：
-        #    - 每个节点都有非空 id（不会出现 None）
-        #    - 节点 id 唯一
-        #    - 边的 from/to 一定引用有效节点
+        # 4. 规范化节点和边
         structure = self._normalize_structure(structure)
 
         return structure
+
+    def _create_fallback_structure(self) -> Dict[str, Any]:
+        """创建回退的空结构"""
+        return {
+            "type": "flowchart",
+            "nodes": [],
+            "edges": [],
+        }
 
     def _normalize_structure(self, structure: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -1108,64 +1108,26 @@ export default function Home() {
           <ExcalidrawCanvas 
             elements={elements} 
             onElementsChange={(updatedElements) => {
-              // 防抖：避免频繁更新导致编辑器重新渲染
-              if (syncCodeTimeoutRef.current) {
-                clearTimeout(syncCodeTimeoutRef.current);
+              // 立即同步，不使用防抖，让响应更快
+              // 只在 JSON 字符串真正变化时才更新，避免不必要的重新渲染
+              try {
+                const jsonString = JSON.stringify(updatedElements, null, 2);
+                
+                // 只在值真正变化时才更新，避免不必要的重新渲染
+                setGeneratedCode(prevCode => {
+                  if (prevCode === jsonString) {
+                    return prevCode; // 值相同，不更新
+                  }
+                  console.log('JSON updated:', updatedElements.length, 'elements');
+                  return jsonString;
+                });
+                
+                // 重要：不要立即更新 elements 状态，这会覆盖 Excalidraw 的撤销栈
+                // 只在 JSON 更新时更新 elements，让 Excalidraw 自己管理撤销/重做
+                // setElements(updatedElements); // 注释掉，让 Excalidraw 自己管理状态
+              } catch (error) {
+                console.error('Error converting elements to JSON:', error);
               }
-              
-              syncCodeTimeoutRef.current = setTimeout(() => {
-                try {
-                  // 检查元素是否真的变化了（比较ID和关键属性）
-                  const currentElementIds = new Set(elements.map(el => el.id).sort());
-                  const updatedElementIds = new Set(updatedElements.map(el => el.id).sort());
-                  
-                  const idsEqual = currentElementIds.size === updatedElementIds.size &&
-                    Array.from(currentElementIds).every(id => updatedElementIds.has(id));
-                  
-                  // 如果ID集合相同，检查是否有属性变化
-                  let hasChanges = !idsEqual;
-                  if (idsEqual) {
-                    hasChanges = updatedElements.some(updatedEl => {
-                      const currentEl = elements.find(el => el.id === updatedEl.id);
-                      if (!currentEl) return true;
-                      
-                      // 比较关键属性
-                      return (
-                        updatedEl.x !== currentEl.x ||
-                        updatedEl.y !== currentEl.y ||
-                        updatedEl.width !== currentEl.width ||
-                        updatedEl.height !== currentEl.height ||
-                        updatedEl.stroke !== currentEl.stroke ||
-                        updatedEl.fill !== currentEl.fill ||
-                        (updatedEl.type === 'text' && updatedEl.text !== currentEl.text) ||
-                        (updatedEl.text && updatedEl.text !== currentEl.text) ||
-                        (updatedEl.x1 !== currentEl.x1) ||
-                        (updatedEl.y1 !== currentEl.y1) ||
-                        (updatedEl.x2 !== currentEl.x2) ||
-                        (updatedEl.y2 !== currentEl.y2)
-                      );
-                    });
-                  }
-                  
-                  if (!hasChanges) {
-                    return; // 没有变化，跳过更新
-                  }
-                  
-                  const jsonString = JSON.stringify(updatedElements, null, 2);
-                  // 只在值真正变化时才更新，避免不必要的重新渲染
-                  setGeneratedCode(prevCode => {
-                    if (prevCode === jsonString) {
-                      return prevCode; // 值相同，不更新
-                    }
-                    return jsonString;
-                  });
-                  // 重要：不要立即更新 elements 状态，这会覆盖 Excalidraw 的撤销栈
-                  // 只在 JSON 更新时更新 elements，让 Excalidraw 自己管理撤销/重做
-                  // setElements(updatedElements); // 注释掉，让 Excalidraw 自己管理状态
-                } catch (error) {
-                  console.error('Error converting elements to JSON:', error);
-                }
-              }, 300); // 减少防抖延迟，让响应更快
             }}
           />
           

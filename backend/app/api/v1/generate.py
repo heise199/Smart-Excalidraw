@@ -253,7 +253,8 @@ async def generate_chart(request: GenerateRequest):
             )
     
     except Exception as e:
-        logger.error(f"生成失败: {e}", exc_info=True)
+        # 使用 % 格式化避免 f-string 中的 {} 冲突
+        logger.error("生成失败: %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

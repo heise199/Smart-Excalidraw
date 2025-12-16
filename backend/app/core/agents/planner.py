@@ -5,7 +5,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models import BaseLanguageModel
 from typing import Dict, Any, Optional
 import json
+import re
+import asyncio
 from loguru import logger
+from openai import InternalServerError, APIError
+from fastapi import HTTPException
 from app.core.excalidraw.structure_extractor import extract_structure_from_code, summarize_structure
 
 
@@ -57,7 +61,10 @@ class PlannerAgent:
 - layout: 布局建议（top-down, left-right, radial 等）
 - style: 样式建议（colors, sizes 等）
 
-输出格式必须是有效的 JSON，不要包含任何其他文本。"""),
+输出要求：
+1. **JSON 格式**：必须将 JSON 包裹在 ```json ... ``` 代码块中。
+2. **思考过程**：你可以先进行分析（Chain of Thought），但最终必须输出上述格式的 JSON 代码块。
+3. **不要包含其他文本**：代码块之外不要有其他解释性文字，除非是思考过程。"""),
             ("user", """用户需求：{user_input}
 图表类型：{chart_type}
 
@@ -99,35 +106,101 @@ class PlannerAgent:
         else:
             current_structure_context = "这是新建模式，没有现有图表结构。"
         
-        response = await chain.ainvoke({
-            "user_input": user_input,
-            "chart_type": chart_type,
-            "current_structure_context": current_structure_context
-        })
+        # 添加重试机制处理 CUDA 内存不足等临时错误
+        max_retries = 3
+        retry_delay = 2  # 秒
+        
+        for attempt in range(max_retries):
+            try:
+                response = await chain.ainvoke({
+                    "user_input": user_input,
+                    "chart_type": chart_type,
+                    "current_structure_context": current_structure_context
+                })
+                break  # 成功则跳出循环
+            except (InternalServerError, APIError) as e:
+                error_msg = str(e).lower()
+                # 检查是否是 CUDA 内存不足或其他可重试的错误
+                if any(keyword in error_msg for keyword in ['cuda', 'out of memory', 'memory', '500', 'internal server error']):
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (attempt + 1)  # 指数退避
+                        logger.warning(
+                            "LLM 请求失败（可能是 CUDA 内存不足），%d 秒后重试 (%d/%d): %s",
+                            wait_time, attempt + 1, max_retries, str(e)[:200]
+                        )
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("LLM 请求失败，已达到最大重试次数: %s", str(e))
+                        raise HTTPException(
+                            status_code=503,
+                            detail=f"模型服务暂时不可用（可能是显存不足）。请稍后重试。错误详情: {str(e)[:200]}"
+                        )
+                else:
+                    # 其他类型的错误，直接抛出
+                    raise
+            except Exception as e:
+                # 其他异常，直接抛出
+                logger.error("规划阶段发生未知错误: %s", str(e), exc_info=True)
+                raise
         
         # 解析 JSON 响应
         content = response.content.strip()
         
-        # 移除可能的 markdown 代码块包装
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
+        # 1. 移除 <think> 标签内容 (针对 DeepSeek R1 等思考模型)
+        content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
         content = content.strip()
         
-        try:
-            plan = json.loads(content)
+        plan = None
+        
+        # 2. 优先尝试提取 markdown 代码块
+        # 使用非贪婪匹配提取最后一个可能的 JSON 块（通常思考在通过，结果在最后）
+        code_blocks = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if code_blocks:
+            # 尝试解析最后一个代码块
+            try:
+                plan = json.loads(code_blocks[-1])
+            except json.JSONDecodeError:
+                # 如果最后一个失败，尝试其他的
+                for block in reversed(code_blocks[:-1]):
+                    try:
+                        plan = json.loads(block)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+        
+        # 3. 如果没有代码块，尝试直接提取最外层的 JSON 对象
+        if not plan:
+            try:
+                # 寻找第一个 { 和最后一个 }
+                start = content.find('{')
+                end = content.rfind('}')
+                if start != -1 and end != -1:
+                    json_str = content[start:end+1]
+                    plan = json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+                
+        # 4. 如果还是失败，且内容看起来像 JSON 但有一些前缀后缀
+        if not plan:
+            # 最后的尝试：清理常见的干扰字符
+            cleaned = re.sub(r'^[^{]*', '', content) # 去掉开头的非 { 字符
+            cleaned = re.sub(r'[^}]*$', '', cleaned) # 去掉结尾的非 } 字符
+            try:
+                plan = json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+
+        if plan:
             return plan
-        except json.JSONDecodeError as e:
-            # 如果解析失败，返回默认规划
-            return {
-                "analysis": "默认规划（解析失败）",
-                "chart_type": chart_type if chart_type != "auto" else "flowchart",
-                "elements": [],
-                "relationships": [],
-                "layout": "top-down",
-                "style": {}
-            }
+        
+        logger.error(f"Failed to parse plan JSON. Content preview: {content[:200]}...")
+        return {
+            "analysis": "默认规划（解析失败，请检查模型输出）",
+            "chart_type": chart_type if chart_type != "auto" else "flowchart",
+            "elements": [],
+            "relationships": [],
+            "layout": "top-down",
+            "style": {}
+        }
 

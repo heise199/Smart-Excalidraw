@@ -30,6 +30,44 @@ class LayoutEngine:
     def __init__(self):
         self.node_spacing = 200  # 节点间距（像素）
         self.level_spacing = 300  # 层级间距（像素）
+
+    def _estimate_node_size(self, node: Dict[str, Any]) -> Tuple[float, float]:
+        """估算节点尺寸"""
+        label = node.get("label", "")
+        if not label:
+            return 200, 80
+            
+        # 换行处理
+        lines = label.split('\\n')
+        if len(lines) == 1:
+            lines = label.split('\n')
+            
+        max_line_len = 0
+        for line in lines:
+            line_len = 0
+            for char in line:
+                # 简单判断是否为宽字符（如汉字）
+                if '\u4e00' <= char <= '\u9fff': 
+                    line_len += 2 
+                else:
+                    line_len += 1.1 
+            max_line_len = max(max_line_len, line_len)
+        
+        # 基础字体大小 (假设 16px)
+        font_size = 16
+        # 估算宽度: 字符宽度 * 字体大小 * 系数 + padding
+        estimated_width = max(160, max_line_len * font_size * 0.5 + 40) 
+        estimated_height = max(60, len(lines) * font_size * 1.5 + 40)
+        
+        # 形状调整
+        shape = node.get("shape", "rectangle")
+        if shape == "diamond":
+            estimated_width = max(estimated_width * 1.3, 120)
+            estimated_height = max(estimated_height * 1.3, 80)
+        elif shape == "ellipse":
+             estimated_width = max(estimated_width, 120)
+
+        return estimated_width, estimated_height
     
     def layout(
         self, 
@@ -51,6 +89,13 @@ class LayoutEngine:
         
         if not nodes:
             return []
+            
+        # 预计算节点尺寸
+        for node in nodes:
+            if "width" not in node or "height" not in node:
+                w, h = self._estimate_node_size(node)
+                node["width"] = w
+                node["height"] = h
         
         # 根据图表类型选择布局算法
         if chart_type in ["flowchart", "tree", "orgchart"]:
@@ -367,7 +412,14 @@ class LayoutEngine:
             
             for node_id in nodes_in_row:
                 is_dummy = node_id.startswith("__dummy_")
-                width = 50 if is_dummy else 200 # 虚拟节点占位宽度小一点，但要有间距
+                
+                if is_dummy:
+                    width = 50 
+                else:
+                    # 使用实际节点宽度
+                    node = node_map.get(node_id)
+                    width = node.get("width", 200) if node else 200
+                    
                 spacing = self.node_spacing
                 
                 # 记录这个节点的中心位置
@@ -398,8 +450,7 @@ class LayoutEngine:
                         **node,
                         "x": float(final_x),
                         "y": float(y),
-                        "width": 200,
-                        "height": 80
+                        # width/height 已经在 node 中预计算了，这里直接使用
                     })
                 
         return result
@@ -455,8 +506,7 @@ class LayoutEngine:
                         **node,
                         "x": float(x),
                         "y": float(y),
-                        "width": 200,  # 默认宽度
-                        "height": 80   # 默认高度
+                        # width/height 保持原值
                     })
                 else:
                     # 如果节点没有位置，使用默认值
@@ -464,8 +514,7 @@ class LayoutEngine:
                         **node,
                         "x": 0.0,
                         "y": 0.0,
-                        "width": 200,
-                        "height": 80
+                        # width/height 保持原值
                     })
             
             return result
@@ -629,8 +678,7 @@ class LayoutEngine:
                     **node,
                     "x": float(x),
                     "y": float(y),
-                    "width": 200,
-                    "height": 80
+                    # width/height 保持原值
                 })
         
         return result

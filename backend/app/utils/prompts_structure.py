@@ -21,7 +21,8 @@ def get_structure_system_prompt() -> str:
     {
       "id": "node1",           // 唯一标识符
       "label": "节点文本",      // 节点显示文本
-      "shape": "rectangle"     // 形状类型：rectangle, ellipse, diamond, text
+      "shape": "rectangle",    // 形状类型：rectangle, ellipse, diamond, text
+      "group": "group1"        // (可选) 分组ID，用于将相关节点聚类
     }
   ],
   "edges": [
@@ -36,12 +37,14 @@ def get_structure_system_prompt() -> str:
 
 ## 重要规则
 
-1. **绝对不要包含坐标信息**（x, y, width, height 等）
-2. **只输出逻辑结构**：节点 ID、标签、连接关系
-3. **确保节点 ID 唯一**
-4. **边的 from 和 to 必须引用已存在的节点 ID**
-5. **输出必须是有效的 JSON，不要包含其他文本**
-6. **节点数量**：
+1. **思维链分析**：建议在 JSON 之前，先用一段简短的文字分析图表的布局策略、逻辑流向和关键分组（这对生成高质量图表至关重要）。
+2. **JSON 格式**：最终的结构数据必须包裹在 ```json ... ``` 代码块中。
+3. **无坐标**：绝对不要包含坐标信息（x, y, width, height 等）
+4. **只输出逻辑结构**：节点 ID、标签、连接关系
+5. **确保节点 ID 唯一**
+6. **边的 from 和 to 必须引用已存在的节点 ID**
+7. **分组 (Grouping)**：如果多个节点属于同一个逻辑模块（如“后端服务”、“数据库集群”），请给它们分配相同的 `group` 属性。
+8. **节点数量**：
    - 根据实际逻辑复杂度决定节点数量，不强制限制。
    - 如果流程过长，建议拆分为主要流程和子流程，或使用泳道图/分层结构。
 7. **保持结构线性且清晰**：
@@ -89,7 +92,7 @@ def get_structure_system_prompt() -> str:
 }
 ```
 
-记住：只输出 JSON，不要坐标！"""
+记住：先进行简单的思维链分析，然后输出被 ```json 包裹的结构数据。不要输出坐标！"""
 
 
 def get_structure_user_prompt(user_input: str, chart_type: str, plan: Dict[str, Any] = None) -> str:

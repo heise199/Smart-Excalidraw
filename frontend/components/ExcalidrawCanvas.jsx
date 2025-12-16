@@ -391,10 +391,10 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
     
     // Handle arrow with x1, y1, x2, y2 (convert to x, y, width, height)
     if (converted.type === 'arrow' && converted.x1 !== undefined && converted.y1 !== undefined) {
-      const x1 = converted.x1;
-      const y1 = converted.y1;
-      const x2 = converted.x2 || x1;
-      const y2 = converted.y2 || y1;
+      let x1 = converted.x1;
+      let y1 = converted.y1;
+      let x2 = converted.x2 || x1;
+      let y2 = converted.y2 || y1;
       
       // Try to find start and end elements by position
       // Check if arrow endpoints are near element edges (all four edges) or inside elements
@@ -474,14 +474,19 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       }
       
       // If arrow has start/end element IDs, use binding (highest priority)
-      if (converted.startId) {
+      // 优先使用 start/end 对象，然后是 startId/endId，最后是位置匹配
+      if (converted.start && converted.start.id) {
+        // 已经有 start 对象，保持不变
+      } else if (converted.startId) {
         converted.start = { id: converted.startId };
         delete converted.startId;
       } else if (startElement && startElement.id) {
         converted.start = { id: startElement.id };
       }
       
-      if (converted.endId) {
+      if (converted.end && converted.end.id) {
+        // 已经有 end 对象，保持不变
+      } else if (converted.endId) {
         converted.end = { id: converted.endId };
         delete converted.endId;
       } else if (endElement && endElement.id) {
@@ -490,6 +495,22 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       
       // Set arrow position and size
       // Calculate width and height first (normalized: relative to start point)
+      // 确保坐标值是有效的数字
+      const MAX_COORDINATE = 1000000;
+      const MIN_COORDINATE = -1000000;
+      
+      // 验证并限制输入坐标值
+      if (!isFinite(x1) || isNaN(x1)) x1 = 0;
+      if (!isFinite(y1) || isNaN(y1)) y1 = 0;
+      if (!isFinite(x2) || isNaN(x2)) x2 = x1 + 100;
+      if (!isFinite(y2) || isNaN(y2)) y2 = y1;
+      
+      // 限制坐标值范围
+      x1 = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, x1));
+      y1 = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, y1));
+      x2 = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, x2));
+      y2 = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, y2));
+      
       let width = x2 - x1;
       let height = y2 - y1;
       
@@ -507,51 +528,30 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
         height = height >= 0 ? minDimension : -minDimension;
       }
       
+      // 再次验证 width 和 height
+      if (!isFinite(width) || isNaN(width)) width = 100;
+      if (!isFinite(height) || isNaN(height)) height = 0;
+      
+      // 限制 width 和 height 的范围
+      width = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, width));
+      height = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, height));
+      
       // Normalize arrow coordinates
       // In Excalidraw, arrows must be normalized: start at (x, y), end at (x + width, y + height)
       // When arrows have bindings, Excalidraw will automatically adjust, but we still need valid initial coordinates
       
-      // Ensure width and height are valid before setting coordinates
-      if (isNaN(width) || !isFinite(width)) width = 100;
-      if (isNaN(height) || !isFinite(height)) height = 0;
-      if (isNaN(x1) || !isFinite(x1)) x1 = 0;
-      if (isNaN(y1) || !isFinite(y1)) y1 = 0;
-      if (isNaN(x2) || !isFinite(x2)) x2 = x1 + width;
-      if (isNaN(y2) || !isFinite(y2)) y2 = y1 + height;
+      // 使用原始的 x1, y1, x2, y2 来计算，不要使用经过调整的 width 和 height
+      // 这样可以保持箭头位置的准确性
+      const originalWidth = x2 - x1;
+      const originalHeight = y2 - y1;
       
-      if (converted.start && converted.end) {
-        // Both bound - Excalidraw will calculate position automatically
-        // Use start point as base, with direction towards end
-        // The actual connection points will be calculated by Excalidraw
-        // Recalculate width/height based on actual points
-        width = x2 - x1;
-        height = y2 - y1;
-        converted.x = x1;
-        converted.y = y1;
-        converted.width = width;
-        converted.height = height;
-      } else if (converted.start) {
-        // Start is bound, end is free
-        // Position at the free end, with negative dimensions pointing back to bound start
-        // This tells Excalidraw that start is bound and end is at (x, y)
-        converted.x = x2;
-        converted.y = y2;
-        converted.width = -(x2 - x1);
-        converted.height = -(y2 - y1);
-      } else if (converted.end) {
-        // End is bound, start is free
-        // Position at start point, pointing towards bound end
-        converted.x = x1;
-        converted.y = y1;
-        converted.width = x2 - x1;
-        converted.height = y2 - y1;
-      } else {
-        // No binding - simple normalized coordinates
-        converted.x = x1;
-        converted.y = y1;
-        converted.width = width;
-        converted.height = height;
-      }
+      // 统一使用起点作为基准，不管绑定状态如何
+      // Excalidraw 会根据 start/end 绑定自动调整箭头的连接点位置
+      // 我们只需要提供正确的方向向量（从起点到终点）
+      converted.x = x1;
+      converted.y = y1;
+      converted.width = originalWidth;
+      converted.height = originalHeight;
       
       // Final validation: ensure all values are valid numbers
       if (isNaN(converted.width) || !isFinite(converted.width)) {
@@ -594,6 +594,20 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       } else {
         converted.endArrowhead = 'arrow'; // Default arrow head
       }
+      
+      // 对于箭头，必须删除 points 属性，让 Excalidraw 自动计算
+      // 这是防止 "Linear element is not normalized" 错误的关键
+      if (converted.points) {
+        delete converted.points;
+      }
+      
+      // 确保 width 和 height 不为零（或太小），这会导致归一化错误
+      if (converted.width !== undefined && Math.abs(converted.width) < 0.1) {
+        converted.width = converted.width >= 0 ? 1 : -1;
+      }
+      if (converted.height !== undefined && Math.abs(converted.height) < 0.1) {
+        converted.height = converted.height >= 0 ? 1 : -1;
+      }
     }
     
     // For linear elements (arrow / line), ensure we don't carry over any stale `points`
@@ -602,8 +616,30 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
     // normalized `points` internally. Passing inconsistent `points` can lead to
     // "Linear element is not normalized" runtime errors when editing.
     if (converted.type === 'arrow' || converted.type === 'line') {
+      // 删除所有可能导致归一化问题的属性
       if (converted.points) {
         delete converted.points;
+      }
+      // 确保坐标值是有效的
+      if (converted.x !== undefined && (!isFinite(converted.x) || isNaN(converted.x))) {
+        converted.x = 0;
+      }
+      if (converted.y !== undefined && (!isFinite(converted.y) || isNaN(converted.y))) {
+        converted.y = 0;
+      }
+      if (converted.width !== undefined && (!isFinite(converted.width) || isNaN(converted.width))) {
+        converted.width = 100;
+      }
+      if (converted.height !== undefined && (!isFinite(converted.height) || isNaN(converted.height))) {
+        converted.height = 0;
+      }
+      
+      // 确保 width 和 height 不为零（或太小），这会导致归一化错误
+      if (converted.width !== undefined && Math.abs(converted.width) < 0.1) {
+        converted.width = converted.width >= 0 ? 1 : -1;
+      }
+      if (converted.height !== undefined && Math.abs(converted.height) < 0.1) {
+        converted.height = converted.height >= 0 ? 1 : -1;
       }
     }
     
@@ -631,6 +667,30 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       return [];
     }
 
+    // ===== 调试日志：输出原始 Excalidraw 元素 =====
+    console.log('========== convertFromExcalidrawFormat DEBUG ==========');
+    console.log('Input elements count:', excalidrawElements.length);
+    
+    // 输出前3个元素的完整结构（帮助理解 Excalidraw 的内部格式）
+    excalidrawElements.slice(0, 5).forEach((el, index) => {
+      console.log(`\n--- Element ${index} (${el.type}) ---`);
+      console.log('ID:', el.id);
+      console.log('Type:', el.type);
+      console.log('Coordinates: x=', el.x, 'y=', el.y, 'width=', el.width, 'height=', el.height);
+      console.log('Colors: strokeColor=', el.strokeColor, 'backgroundColor=', el.backgroundColor);
+      console.log('Style: strokeWidth=', el.strokeWidth, 'fillStyle=', el.fillStyle);
+      console.log('Label property:', el.label);
+      console.log('ContainerId (for text):', el.containerId);
+      console.log('BoundElements:', el.boundElements);
+      console.log('StartBinding:', el.startBinding);
+      console.log('EndBinding:', el.endBinding);
+      console.log('EndArrowhead:', el.endArrowhead);
+      console.log('Text (for text elements):', el.text);
+      console.log('Roundness:', el.roundness);
+      console.log('Full element:', JSON.stringify(el, null, 2));
+    });
+    console.log('=======================================================\n');
+
     // 使用 Map 去重，确保每个 ID 只出现一次
     const elementsMap = new Map();
     
@@ -643,34 +703,86 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
         }
       });
 
-    // 分离形状和文本元素，用于后续处理 label
-    const shapeElements = [];
-    const textElements = [];
-    const arrowElements = [];
+    // 保持元素的原始顺序，不要按类型分离
+    // 这样可以保持 JSON 的结构和顺序
+    const allElements = Array.from(elementsMap.values());
     
-    Array.from(elementsMap.values()).forEach(el => {
-      if (el.type === 'text') {
-        textElements.push(el);
-      } else if (el.type === 'arrow' || el.type === 'line') {
-        arrowElements.push(el);
-      } else {
-        shapeElements.push(el);
+    // 创建一个映射，用于识别哪些 text 元素是 label
+    // 关键修复：使用 Excalidraw 的 containerId 属性来准确识别 label
+    const textToElementMap = new Map(); // text element id -> parent element id
+    
+    // 第一步：通过 containerId 识别 label（这是最准确的方式）
+    allElements.forEach(textEl => {
+      if (textEl.type === 'text' && textEl.containerId) {
+        // text 元素有 containerId，说明它是某个元素的 label
+        textToElementMap.set(textEl.id, textEl.containerId);
+        console.log('Found label via containerId:', textEl.id, '->', textEl.containerId);
       }
     });
     
-    // 处理形状元素，保留 label 格式
-    return shapeElements
-      .map(el => {
-        const converted = {
+    // 第二步：通过 boundElements 反向确认（作为备用）
+    allElements.forEach(el => {
+      if (el.boundElements && Array.isArray(el.boundElements)) {
+        el.boundElements.forEach(bound => {
+          if (bound.type === 'text' && bound.id) {
+            // 这个元素绑定了一个 text 元素
+            if (!textToElementMap.has(bound.id)) {
+              textToElementMap.set(bound.id, el.id);
+              console.log('Found label via boundElements:', bound.id, '->', el.id);
+            }
+          }
+        });
+      }
+    });
+    
+    console.log('Total labels found:', textToElementMap.size);
+    
+    // 按原始顺序处理所有元素，保持 JSON 的结构
+    const result = [];
+    
+    allElements.forEach(el => {
+      // 如果是 text 元素，且被识别为某个元素（形状或箭头）的 label，跳过（会在元素处理时添加）
+      if (el.type === 'text' && textToElementMap.has(el.id)) {
+        return; // 跳过，这是 label，不是独立文本
+      }
+      
+      let converted = null;
+      
+      // 处理形状元素（rectangle, ellipse, diamond）
+      if (el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond') {
+        converted = {
           id: el.id,
           type: el.type
         };
 
-        // 基础属性
-        if (el.x !== undefined) converted.x = Math.round(el.x);
-        if (el.y !== undefined) converted.y = Math.round(el.y);
-        if (el.width !== undefined) converted.width = Math.round(el.width);
-        if (el.height !== undefined) converted.height = Math.round(el.height);
+        // 基础属性 - 验证并限制坐标值范围
+        const MAX_COORDINATE = 1000000;
+        const MIN_COORDINATE = -1000000;
+        
+        if (el.x !== undefined) {
+          let x = el.x;
+          if (!isFinite(x) || isNaN(x)) x = 0;
+          x = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, x));
+          converted.x = Math.round(x);
+        }
+        if (el.y !== undefined) {
+          let y = el.y;
+          if (!isFinite(y) || isNaN(y)) y = 0;
+          y = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, y));
+          converted.y = Math.round(y);
+        }
+        if (el.width !== undefined) {
+          let width = el.width;
+          if (!isFinite(width) || isNaN(width) || width <= 0) width = 100;
+          width = Math.max(1, Math.min(MAX_COORDINATE, width));
+          converted.width = Math.round(width);
+        }
+        if (el.height !== undefined) {
+          let height = el.height;
+          if (!isFinite(height) || isNaN(height) || height <= 0) height = 100;
+          height = Math.max(1, Math.min(MAX_COORDINATE, height));
+          converted.height = Math.round(height);
+        }
 
         // 颜色转换：保持原始格式（backgroundColor/strokeColor 而不是 fill/stroke）
         // 但为了兼容，同时提供两种格式
@@ -705,46 +817,99 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
 
         // 处理形状（rectangle, ellipse, diamond）的 label
         // 保持 label 对象格式，而不是转换为独立的 text 元素
-        if ((el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond') && el.label) {
-          converted.label = {
-            text: el.label.text || '',
-          };
-          if (el.label.fontSize !== undefined) {
-            converted.label.fontSize = el.label.fontSize;
-          }
-          if (el.label.strokeColor !== undefined) {
-            converted.label.strokeColor = el.label.strokeColor;
-          }
-          if (el.label.textAlign !== undefined) {
-            converted.label.textAlign = el.label.textAlign;
-          }
-          if (el.label.verticalAlign !== undefined) {
-            converted.label.verticalAlign = el.label.verticalAlign;
-          }
-          if (el.label.fontFamily !== undefined) {
-            converted.label.fontFamily = el.label.fontFamily;
+        if ((el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond')) {
+          // 首先检查元素本身是否有 label 属性
+          if (el.label) {
+            converted.label = {
+              text: el.label.text || '',
+            };
+            if (el.label.fontSize !== undefined) {
+              converted.label.fontSize = el.label.fontSize;
+            }
+            if (el.label.strokeColor !== undefined) {
+              converted.label.strokeColor = el.label.strokeColor;
+            }
+            if (el.label.textAlign !== undefined) {
+              converted.label.textAlign = el.label.textAlign;
+            }
+            if (el.label.verticalAlign !== undefined) {
+              converted.label.verticalAlign = el.label.verticalAlign;
+            }
+            if (el.label.fontFamily !== undefined) {
+              converted.label.fontFamily = el.label.fontFamily;
+            }
+          } else {
+            // 如果没有 label 属性，检查是否有对应的 text 元素（Excalidraw 可能将 label 分离了）
+            const labelTextEl = allElements.find(textEl => 
+              textEl.type === 'text' && textToElementMap.get(textEl.id) === el.id
+            );
+            
+            if (labelTextEl) {
+              // 找到对应的 text 元素，将其转换为 label
+              converted.label = {
+                text: labelTextEl.text || '',
+              };
+              if (labelTextEl.fontSize !== undefined) {
+                converted.label.fontSize = labelTextEl.fontSize;
+              }
+              if (labelTextEl.strokeColor !== undefined) {
+                converted.label.strokeColor = labelTextEl.strokeColor;
+              }
+              if (labelTextEl.textAlign !== undefined) {
+                converted.label.textAlign = labelTextEl.textAlign;
+              }
+              if (labelTextEl.verticalAlign !== undefined) {
+                converted.label.verticalAlign = labelTextEl.verticalAlign;
+              }
+              if (labelTextEl.fontFamily !== undefined) {
+                converted.label.fontFamily = labelTextEl.fontFamily;
+              }
+            }
           }
         }
 
-        return converted;
-      })
-      .concat(
-        // 处理箭头和线条元素
-        arrowElements.map(el => {
-          const converted = {
-            id: el.id,
-            type: el.type
-          };
+        result.push(converted);
+      }
+      // 处理箭头和线条元素
+      else if (el.type === 'arrow' || el.type === 'line') {
+        converted = {
+          id: el.id,
+          type: el.type
+        };
 
-          const x1 = el.x || 0;
-          const y1 = el.y || 0;
-          const x2 = x1 + (el.width || 0);
-          const y2 = y1 + (el.height || 0);
+          // 确保坐标值是有效的数字，并在合理范围内
+          const MAX_COORDINATE = 1000000; // 最大坐标值
+          const MIN_COORDINATE = -1000000; // 最小坐标值
           
-          converted.x1 = Math.round(x1);
-          converted.y1 = Math.round(y1);
-          converted.x2 = Math.round(x2);
-          converted.y2 = Math.round(y2);
+          let x = el.x || 0;
+          let y = el.y || 0;
+          let width = el.width || 0;
+          let height = el.height || 0;
+          
+          // 验证并限制坐标值范围
+          if (!isFinite(x) || isNaN(x)) x = 0;
+          if (!isFinite(y) || isNaN(y)) y = 0;
+          if (!isFinite(width) || isNaN(width)) width = 100;
+          if (!isFinite(height) || isNaN(height)) height = 0;
+          
+          // 限制坐标值范围，避免过大或过小的值
+          x = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, x));
+          y = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, y));
+          width = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, width));
+          height = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, height));
+          
+          // 使用 x, y, width, height 格式（与原始 JSON 格式一致）
+          converted.x = Math.round(x);
+          converted.y = Math.round(y);
+          converted.width = Math.round(width);
+          converted.height = Math.round(height);
+          
+          // 最终验证：确保坐标值有效
+          if (!isFinite(converted.x) || !isFinite(converted.y) || 
+              !isFinite(converted.width) || !isFinite(converted.height)) {
+            console.warn('ExcalidrawCanvas: Invalid arrow coordinates after conversion, skipping:', el);
+            return; // 跳过这个元素，不添加到结果中
+          }
 
           // 颜色和样式
           if (el.backgroundColor !== undefined) {
@@ -769,31 +934,31 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
           }
 
           // 处理绑定关系
+          // Excalidraw 内部使用 startBinding/endBinding，我们需要从这里获取绑定信息
+          // 注意：Excalidraw 元素不会有 start/end 对象，这是我们自定义 JSON 的格式
           if (el.startBinding && el.startBinding.elementId) {
-            converted.startId = el.startBinding.elementId;
             converted.start = { id: el.startBinding.elementId };
           }
+          
           if (el.endBinding && el.endBinding.elementId) {
-            converted.endId = el.endBinding.elementId;
             converted.end = { id: el.endBinding.elementId };
           }
 
-          // 箭头头部
+          // 箭头头部 - 保持与原始 JSON 格式一致，只使用 endArrowhead
           if (el.type === 'arrow') {
+            // 默认箭头头部为 'arrow'，除非明确设置为其他值或 null
             if (el.endArrowhead !== undefined) {
               converted.endArrowhead = el.endArrowhead;
-              if (el.endArrowhead === 'arrow') {
-                converted.head = 'arrow';
-              } else {
-                converted.head = el.endArrowhead;
-              }
+            } else {
+              converted.endArrowhead = 'arrow'; // 默认值
             }
-            if (el.startArrowhead !== undefined) {
+            if (el.startArrowhead !== undefined && el.startArrowhead !== null) {
               converted.startArrowhead = el.startArrowhead;
             }
           }
 
           // 保留箭头的 label
+          // 首先检查元素本身是否有 label 属性
           if (el.label) {
             converted.label = {
               text: el.label.text || '',
@@ -810,21 +975,75 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
             if (el.label.verticalAlign !== undefined) {
               converted.label.verticalAlign = el.label.verticalAlign;
             }
+            if (el.label.fontFamily !== undefined) {
+              converted.label.fontFamily = el.label.fontFamily;
+            }
+          } else {
+            // 如果没有 label 属性，检查是否有对应的 text 元素（Excalidraw 可能将 label 分离了）
+            const labelTextEl = allElements.find(textEl => 
+              textEl.type === 'text' && textToElementMap.get(textEl.id) === el.id
+            );
+            
+            if (labelTextEl) {
+              // 找到对应的 text 元素，将其转换为 label
+              converted.label = {
+                text: labelTextEl.text || '',
+              };
+              if (labelTextEl.fontSize !== undefined) {
+                converted.label.fontSize = labelTextEl.fontSize;
+              }
+              if (labelTextEl.strokeColor !== undefined) {
+                converted.label.strokeColor = labelTextEl.strokeColor;
+              }
+              if (labelTextEl.textAlign !== undefined) {
+                converted.label.textAlign = labelTextEl.textAlign;
+              }
+              if (labelTextEl.verticalAlign !== undefined) {
+                converted.label.verticalAlign = labelTextEl.verticalAlign;
+              }
+              if (labelTextEl.fontFamily !== undefined) {
+                converted.label.fontFamily = labelTextEl.fontFamily;
+              }
+            }
           }
 
-          return converted;
-        }),
-        // 处理独立的文本元素
-        textElements.map(el => {
-          const converted = {
-            id: el.id,
-            type: el.type
-          };
+        result.push(converted);
+      }
+        // 处理独立的文本元素（不是任何元素（形状或箭头）的 label）
+        else if (el.type === 'text' && !textToElementMap.has(el.id)) {
+        converted = {
+          id: el.id,
+          type: el.type
+        };
 
-          if (el.x !== undefined) converted.x = Math.round(el.x);
-          if (el.y !== undefined) converted.y = Math.round(el.y);
-          if (el.width !== undefined) converted.width = Math.round(el.width);
-          if (el.height !== undefined) converted.height = Math.round(el.height);
+          // 验证并限制文本元素的坐标值范围
+          const MAX_COORDINATE = 1000000;
+          const MIN_COORDINATE = -1000000;
+          
+          if (el.x !== undefined) {
+            let x = el.x;
+            if (!isFinite(x) || isNaN(x)) x = 0;
+            x = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, x));
+            converted.x = Math.round(x);
+          }
+          if (el.y !== undefined) {
+            let y = el.y;
+            if (!isFinite(y) || isNaN(y)) y = 0;
+            y = Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, y));
+            converted.y = Math.round(y);
+          }
+          if (el.width !== undefined) {
+            let width = el.width;
+            if (!isFinite(width) || isNaN(width) || width <= 0) width = 100;
+            width = Math.max(1, Math.min(MAX_COORDINATE, width));
+            converted.width = Math.round(width);
+          }
+          if (el.height !== undefined) {
+            let height = el.height;
+            if (!isFinite(height) || isNaN(height) || height <= 0) height = 20;
+            height = Math.max(1, Math.min(MAX_COORDINATE, height));
+            converted.height = Math.round(height);
+          }
 
           if (el.text !== undefined) {
             converted.text = el.text;
@@ -850,10 +1069,23 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
             converted.fill = el.backgroundColor;
           }
 
-          return converted;
-        })
-      )
-      .filter(el => el && el.id); // 确保所有元素都有ID
+        result.push(converted);
+      }
+    });
+    
+    // 过滤掉无效的元素
+    const filteredResult = result.filter(el => el && el.id);
+    
+    // ===== 调试日志：输出转换结果 =====
+    console.log('\n========== convertFromExcalidrawFormat RESULT ==========');
+    console.log('Output elements count:', filteredResult.length);
+    filteredResult.forEach((el, index) => {
+      console.log(`\n--- Output Element ${index} (${el.type}) ---`);
+      console.log(JSON.stringify(el, null, 2));
+    });
+    console.log('=========================================================\n');
+    
+    return filteredResult;
   };
 
   // Convert elements to Excalidraw format
@@ -918,8 +1150,18 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
 
       // Convert custom format to Skeleton format
       // Pass all elements to conversion function so arrows can find their bindings
+      const MAX_COORDINATE = 1000000;
+      const MIN_COORDINATE = -1000000;
+      
       const skeletonElements = filteredElements
-        .map(el => convertToSkeletonFormat(el, filteredElements))
+        .map(el => {
+          try {
+            return convertToSkeletonFormat(el, filteredElements);
+          } catch (error) {
+            console.error('ExcalidrawCanvas: Error converting element to skeleton format:', error, el);
+            return null;
+          }
+        })
         .filter(el => {
           if (!el || el == null) {
             return false;
@@ -942,9 +1184,42 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
               console.warn('ExcalidrawCanvas: Filtering out arrow/line element with invalid coordinates:', el);
               return false;
             }
+            
+            // 限制坐标值范围，避免过大或过小的值
+            if (Math.abs(el.x) > MAX_COORDINATE || Math.abs(el.y) > MAX_COORDINATE ||
+                Math.abs(el.width) > MAX_COORDINATE || Math.abs(el.height) > MAX_COORDINATE) {
+              console.warn('ExcalidrawCanvas: Filtering out arrow/line element with coordinates too large:', el);
+              return false;
+            }
+            
             // Ensure width and height are not both zero (or too small)
             if (Math.abs(el.width) < 0.1 && Math.abs(el.height) < 0.1) {
               console.warn('ExcalidrawCanvas: Filtering out arrow/line element with zero dimensions:', el);
+              return false;
+            }
+            
+            // 确保没有 points 属性（会导致归一化错误）
+            if (el.points) {
+              delete el.points;
+            }
+          }
+          
+          // 验证形状元素的坐标
+          if (el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond') {
+            if (el.x !== undefined && (!isFinite(el.x) || Math.abs(el.x) > MAX_COORDINATE)) {
+              console.warn('ExcalidrawCanvas: Filtering out shape element with invalid x:', el);
+              return false;
+            }
+            if (el.y !== undefined && (!isFinite(el.y) || Math.abs(el.y) > MAX_COORDINATE)) {
+              console.warn('ExcalidrawCanvas: Filtering out shape element with invalid y:', el);
+              return false;
+            }
+            if (el.width !== undefined && (!isFinite(el.width) || Math.abs(el.width) > MAX_COORDINATE || el.width <= 0)) {
+              console.warn('ExcalidrawCanvas: Filtering out shape element with invalid width:', el);
+              return false;
+            }
+            if (el.height !== undefined && (!isFinite(el.height) || Math.abs(el.height) > MAX_COORDINATE || el.height <= 0)) {
+              console.warn('ExcalidrawCanvas: Filtering out shape element with invalid height:', el);
               return false;
             }
           }
@@ -954,25 +1229,172 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       console.log('ExcalidrawCanvas: Converted to skeleton format:', skeletonElements);
 
       // Convert to Excalidraw elements
-      const converted = convertToExcalidrawElements(skeletonElements);
-      console.log('ExcalidrawCanvas: Converted elements:', converted.length);
+      let converted;
+      try {
+        converted = convertToExcalidrawElements(skeletonElements);
+        console.log('ExcalidrawCanvas: Converted elements:', converted.length);
+      } catch (error) {
+        console.error('ExcalidrawCanvas: Error converting to Excalidraw elements:', error);
+        console.error('ExcalidrawCanvas: Skeleton elements that caused error:', skeletonElements);
+        // 返回空数组而不是抛出错误，避免整个组件崩溃
+        return [];
+      }
       
       // Ensure all converted elements are valid (not undefined or null)
-      const validConverted = converted.filter(el => el != null && typeof el === 'object');
+      // 同时修复箭头元素的 points 属性
+      const validConverted = converted
+        .filter(el => {
+          if (el == null || typeof el !== 'object') {
+            return false;
+          }
+          
+          // 对于箭头/线条元素，验证并修复 points 属性
+          if (el.type === 'arrow' || el.type === 'line') {
+            // 确保有必要的坐标属性
+            if (el.x === undefined || el.y === undefined || 
+                el.width === undefined || el.height === undefined ||
+                !isFinite(el.x) || !isFinite(el.y) ||
+                !isFinite(el.width) || !isFinite(el.height)) {
+              console.warn('ExcalidrawCanvas: Filtering out invalid arrow/line element:', el);
+              return false;
+            }
+            
+            // 确保 width 和 height 不为零
+            if (Math.abs(el.width) < 0.1 && Math.abs(el.height) < 0.1) {
+              console.warn('ExcalidrawCanvas: Filtering out arrow/line with zero dimensions:', el);
+              return false;
+            }
+            
+            // 确保 points 存在且正确归一化
+            // Excalidraw 要求：points[0] 必须是 [0, 0]，points[-1] 必须与 [width, height] 一致
+            const width = el.width || 0;
+            const height = el.height || 0;
+            
+            if (!el.points || !Array.isArray(el.points) || el.points.length === 0) {
+              // 创建归一化的 points 数组
+              el.points = [
+                [0, 0],
+                [width, height]
+              ];
+              console.warn('ExcalidrawCanvas: Fixed missing points for arrow/line element:', el.id);
+            } else {
+              // 验证并修复 points 数组，确保它是归一化的
+              const points = el.points;
+              
+              // 确保第一个点是 [0, 0]
+              if (points.length > 0) {
+                const firstPoint = points[0];
+                if (!Array.isArray(firstPoint) || firstPoint.length < 2 ||
+                    Math.abs(firstPoint[0]) > 0.01 || Math.abs(firstPoint[1]) > 0.01) {
+                  points[0] = [0, 0];
+                }
+              }
+              
+              // 确保最后一个点与 [width, height] 一致
+              if (points.length > 1) {
+                const lastPoint = points[points.length - 1];
+                if (!Array.isArray(lastPoint) || lastPoint.length < 2) {
+                  points[points.length - 1] = [width, height];
+                } else {
+                  const diffX = Math.abs(lastPoint[0] - width);
+                  const diffY = Math.abs(lastPoint[1] - height);
+                  if (diffX > 0.01 || diffY > 0.01) {
+                    points[points.length - 1] = [width, height];
+                  }
+                }
+              } else if (points.length === 1) {
+                points.push([width, height]);
+              }
+              
+              // 验证所有中间点都是有效的
+              for (let i = 1; i < points.length - 1; i++) {
+                const point = points[i];
+                if (!Array.isArray(point) || point.length < 2 ||
+                    !isFinite(point[0]) || !isFinite(point[1])) {
+                  points.splice(i, 1);
+                  i--;
+                }
+              }
+              
+              // 确保至少有两个点
+              if (points.length < 2) {
+                points.length = 0;
+                points.push([0, 0], [width, height]);
+              }
+              
+              el.points = points;
+            }
+          }
+          
+          return true;
+        });
       if (validConverted.length !== converted.length) {
         console.warn('ExcalidrawCanvas: Some converted elements were invalid, filtered out', 
           converted.length - validConverted.length, 'invalid elements');
       }
       
       // 去重：确保没有重复的元素ID
+      // 注意：不要删除 points 属性，因为 Excalidraw 需要它
+      // 我们已经在上面修复了 points，确保它是有效的
       const uniqueElements = [];
       const seenIds = new Set();
       for (const el of validConverted) {
         if (el && el.id && !seenIds.has(el.id)) {
           seenIds.add(el.id);
+          
+          // 对于线性元素（箭头/线条），确保 points 存在且正确归一化
+          if (el.type === 'arrow' || el.type === 'line') {
+            const width = el.width || 0;
+            const height = el.height || 0;
+            
+            if (!el.points || !Array.isArray(el.points) || el.points.length === 0) {
+              el.points = [[0, 0], [width, height]];
+            } else {
+              // 确保第一个点是 [0, 0]
+              if (el.points.length > 0) {
+                const firstPoint = el.points[0];
+                if (!Array.isArray(firstPoint) || firstPoint.length < 2 ||
+                    Math.abs(firstPoint[0]) > 0.01 || Math.abs(firstPoint[1]) > 0.01) {
+                  el.points[0] = [0, 0];
+                }
+              }
+              
+              // 确保最后一个点与 [width, height] 一致
+              if (el.points.length > 1) {
+                const lastPoint = el.points[el.points.length - 1];
+                if (!Array.isArray(lastPoint) || lastPoint.length < 2) {
+                  el.points[el.points.length - 1] = [width, height];
+                } else {
+                  const diffX = Math.abs(lastPoint[0] - width);
+                  const diffY = Math.abs(lastPoint[1] - height);
+                  if (diffX > 0.01 || diffY > 0.01) {
+                    el.points[el.points.length - 1] = [width, height];
+                  }
+                }
+              } else if (el.points.length === 1) {
+                el.points.push([width, height]);
+              }
+              
+              // 确保至少有两个点
+              if (el.points.length < 2) {
+                el.points = [[0, 0], [width, height]];
+              }
+            }
+          }
           uniqueElements.push(el);
         } else if (el && !el.id) {
           // 如果没有ID，也添加（可能是临时元素）
+          // 确保箭头/线条有有效的 points
+          if (el.type === 'arrow' || el.type === 'line') {
+            if (!el.points || !Array.isArray(el.points) || el.points.length === 0) {
+              const width = el.width || 0;
+              const height = el.height || 0;
+              el.points = [
+                [0, 0],
+                [width, height]
+              ];
+            }
+          }
           uniqueElements.push(el);
         } else if (el && el.id && seenIds.has(el.id)) {
           console.warn('ExcalidrawCanvas: Duplicate element ID detected:', el.id, 'skipping duplicate');
@@ -1036,13 +1458,117 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
       // Use updateScene to update the canvas with new elements
       try {
         // 去重：确保没有重复的元素ID
+        // 同时清理和验证线性元素，防止归一化错误
         const uniqueElements = [];
         const seenIds = new Set();
         for (const el of convertedElements) {
-          if (el && el.id && !seenIds.has(el.id)) {
-            seenIds.add(el.id);
-            uniqueElements.push(el);
+          if (!el || typeof el !== 'object') {
+            console.warn('ExcalidrawCanvas: Skipping invalid element:', el);
+            continue;
           }
+          
+          // 验证箭头/线条元素
+          if (el.type === 'arrow' || el.type === 'line') {
+            // 确保有必要的属性
+            if (el.x === undefined || el.y === undefined || 
+                el.width === undefined || el.height === undefined ||
+                !isFinite(el.x) || !isFinite(el.y) ||
+                !isFinite(el.width) || !isFinite(el.height)) {
+              console.warn('ExcalidrawCanvas: Skipping invalid arrow/line element:', el);
+              continue;
+            }
+            
+            // 确保 width 和 height 不为零
+            if (Math.abs(el.width) < 0.1 && Math.abs(el.height) < 0.1) {
+              console.warn('ExcalidrawCanvas: Skipping arrow/line with zero dimensions:', el);
+              continue;
+            }
+            
+            // 对于线性元素，确保 points 存在且正确归一化
+            // Excalidraw 要求：points[0] 必须是 [0, 0]，points[-1] 必须与 [width, height] 一致
+            const width = el.width || 0;
+            const height = el.height || 0;
+            
+            // 如果 points 不存在或无效，创建归一化的 points 数组
+            if (!el.points || !Array.isArray(el.points) || el.points.length === 0) {
+              el.points = [
+                [0, 0],
+                [width, height]
+              ];
+            } else {
+              // 验证并修复 points 数组，确保它是归一化的
+              const points = el.points;
+              
+              // 确保第一个点是 [0, 0]
+              if (points.length > 0) {
+                const firstPoint = points[0];
+                if (!Array.isArray(firstPoint) || firstPoint.length < 2 ||
+                    Math.abs(firstPoint[0]) > 0.01 || Math.abs(firstPoint[1]) > 0.01) {
+                  // 第一个点不是 [0, 0]，需要修复
+                  points[0] = [0, 0];
+                }
+              }
+              
+              // 确保最后一个点与 [width, height] 一致
+              if (points.length > 1) {
+                const lastPoint = points[points.length - 1];
+                if (!Array.isArray(lastPoint) || lastPoint.length < 2) {
+                  // 最后一个点无效，替换为 [width, height]
+                  points[points.length - 1] = [width, height];
+                } else {
+                  // 检查是否与 width, height 一致（允许小的浮点误差）
+                  const diffX = Math.abs(lastPoint[0] - width);
+                  const diffY = Math.abs(lastPoint[1] - height);
+                  if (diffX > 0.01 || diffY > 0.01) {
+                    // 不一致，修复为 [width, height]
+                    points[points.length - 1] = [width, height];
+                  }
+                }
+              } else if (points.length === 1) {
+                // 只有一个点，添加终点
+                points.push([width, height]);
+              }
+              
+              // 验证所有中间点都是有效的
+              for (let i = 1; i < points.length - 1; i++) {
+                const point = points[i];
+                if (!Array.isArray(point) || point.length < 2 ||
+                    !isFinite(point[0]) || !isFinite(point[1])) {
+                  // 无效的点，移除它
+                  points.splice(i, 1);
+                  i--; // 调整索引
+                }
+              }
+              
+              // 确保至少有两个点
+              if (points.length < 2) {
+                points.length = 0;
+                points.push([0, 0], [width, height]);
+              }
+              
+              el.points = points;
+            }
+            
+            if (el.id && !seenIds.has(el.id)) {
+              seenIds.add(el.id);
+              uniqueElements.push(el);
+            } else if (!el.id) {
+              uniqueElements.push(el);
+            }
+          } else {
+            // 非线性元素，直接添加
+            if (el.id && !seenIds.has(el.id)) {
+              seenIds.add(el.id);
+              uniqueElements.push(el);
+            } else if (!el.id) {
+              uniqueElements.push(el);
+            }
+          }
+        }
+        
+        if (uniqueElements.length === 0) {
+          console.warn('ExcalidrawCanvas: No valid elements to update scene');
+          return;
         }
         
         excalidrawAPI.updateScene({
@@ -1057,11 +1583,27 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
           if (isMountedRef.current && excalidrawAPI) {
             console.log('ExcalidrawCanvas: Scrolling to content');
             try {
-              excalidrawAPI.scrollToContent(uniqueElements, {
-                fitToContent: true,
-                animate: true,
-                duration: 300,
+              // 过滤掉无效的元素，避免 scrollToContent 出错
+              const validElementsForScroll = uniqueElements.filter(el => {
+                if (!el || typeof el !== 'object') return false;
+                if (el.type === 'arrow' || el.type === 'line') {
+                  // 确保箭头/线条有有效的坐标
+                  return el.x !== undefined && el.y !== undefined &&
+                         el.width !== undefined && el.height !== undefined &&
+                         isFinite(el.x) && isFinite(el.y) &&
+                         isFinite(el.width) && isFinite(el.height) &&
+                         (Math.abs(el.width) >= 0.1 || Math.abs(el.height) >= 0.1);
+                }
+                return true;
               });
+              
+              if (validElementsForScroll.length > 0) {
+                excalidrawAPI.scrollToContent(validElementsForScroll, {
+                  fitToContent: true,
+                  animate: true,
+                  duration: 300,
+                });
+              }
             } catch (error) {
               console.error('ExcalidrawCanvas: Error scrolling to content:', error);
             }
@@ -1163,46 +1705,71 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
           }
 
           // 过滤掉选择框等临时元素
+          // 注意：不在这里过滤 isDeleted，因为我们需要检测删除操作
           const validElements = excalidrawElements.filter(el => 
             el && 
-            !el.isDeleted && 
             el.type !== 'selection' &&
             el.id && // 确保有ID
             (el.type === 'rectangle' || el.type === 'ellipse' || el.type === 'diamond' || 
              el.type === 'text' || el.type === 'arrow' || el.type === 'line')
           );
 
-          if (validElements.length === 0) {
-            return; // 没有有效元素
+          // 过滤掉已删除的元素（用于转换，但保留用于比较）
+          const activeElements = validElements.filter(el => !el.isDeleted);
+          
+          // 如果之前有元素，现在没有了，说明所有元素都被删除了，需要同步
+          const hadElementsBefore = lastSyncedElementsRef.current && lastSyncedElementsRef.current.length > 0;
+          if (activeElements.length === 0 && !hadElementsBefore) {
+            return; // 从来没有元素，跳过
           }
+          
+          // 使用 activeElements 进行后续处理
+          const elementsToProcess = activeElements;
 
           // 使用更精确的比较：比较元素ID集合和关键属性
-          const currentElementIds = new Set(validElements.map(el => el.id).sort());
+          const currentElementIds = new Set(elementsToProcess.map(el => el.id).sort());
           const lastSyncedIds = lastSyncedElementsRef.current 
             ? new Set(lastSyncedElementsRef.current.map(el => el.id).sort())
             : new Set();
           
-          // 检查ID集合是否相同
+          // 检查ID集合是否相同（包括删除的情况）
           const idsEqual = currentElementIds.size === lastSyncedIds.size &&
             Array.from(currentElementIds).every(id => lastSyncedIds.has(id));
           
-          // 如果ID集合相同，进一步比较关键属性
-          if (idsEqual && lastSyncedElementsRef.current) {
-            const hasSignificantChange = validElements.some(currentEl => {
+          // 如果ID集合不同，说明有元素被添加或删除，需要立即同步
+          if (!idsEqual) {
+            // ID 集合不同，肯定有变化（添加或删除），继续处理
+            console.log('ExcalidrawCanvas: Element count changed:', currentElementIds.size, 'vs', lastSyncedIds.size);
+          } else if (lastSyncedElementsRef.current) {
+            // ID 集合相同，进一步比较关键属性
+            // 使用容差比较，忽略微小的坐标变化（小于 1 像素的变化可能是 Excalidraw 自动调整）
+            const COORDINATE_TOLERANCE = 1; // 坐标容差：1 像素
+            
+            const hasSignificantChange = elementsToProcess.some(currentEl => {
               const lastEl = lastSyncedElementsRef.current.find(el => el.id === currentEl.id);
               if (!lastEl) return true;
               
-              // 比较关键属性
-              return (
-                currentEl.x !== lastEl.x ||
-                currentEl.y !== lastEl.y ||
-                currentEl.width !== lastEl.width ||
-                currentEl.height !== lastEl.height ||
+              // 比较关键属性，使用容差比较坐标
+              const xDiff = Math.abs(currentEl.x - lastEl.x);
+              const yDiff = Math.abs(currentEl.y - lastEl.y);
+              const widthDiff = Math.abs(currentEl.width - lastEl.width);
+              const heightDiff = Math.abs(currentEl.height - lastEl.height);
+              
+              // 坐标变化超过容差才认为是显著变化
+              const hasCoordinateChange = xDiff > COORDINATE_TOLERANCE || 
+                                        yDiff > COORDINATE_TOLERANCE ||
+                                        widthDiff > COORDINATE_TOLERANCE ||
+                                        heightDiff > COORDINATE_TOLERANCE;
+              
+              // 其他属性变化（颜色、文本等）总是认为是显著变化
+              const hasOtherChange = (
                 currentEl.strokeColor !== lastEl.strokeColor ||
                 currentEl.backgroundColor !== lastEl.backgroundColor ||
                 (currentEl.type === 'text' && currentEl.text !== lastEl.text) ||
                 (currentEl.label && currentEl.label.text !== (lastEl.label?.text))
               );
+              
+              return hasCoordinateChange || hasOtherChange;
             });
             
             if (!hasSignificantChange) {
@@ -1212,25 +1779,99 @@ export default function ExcalidrawCanvas({ elements = [], onElementsChange }) {
 
           // 转换回自定义 JSON 格式
           try {
-            const customElements = convertFromExcalidrawFormat(validElements);
+            console.log('ExcalidrawCanvas: Converting elements to custom format:', elementsToProcess.length, 'elements');
+            console.log('ExcalidrawCanvas: First few elements before conversion:', elementsToProcess.slice(0, 3).map(el => ({
+              id: el.id,
+              type: el.type,
+              x: el.x,
+              y: el.y,
+              width: el.width,
+              height: el.height,
+              hasLabel: !!el.label
+            })));
             
-            // 检查自定义元素是否真的变化了
-            const customElementsStr = JSON.stringify(customElements);
-            const lastCustomElementsStr = lastSyncedCustomElementsRef.current 
-              ? JSON.stringify(lastSyncedCustomElementsRef.current)
-              : null;
+            const customElements = convertFromExcalidrawFormat(elementsToProcess);
             
-            if (customElementsStr === lastCustomElementsStr) {
-              return; // 自定义格式没有变化，跳过
+            console.log('ExcalidrawCanvas: Converted to custom format:', customElements.length, 'elements');
+            console.log('ExcalidrawCanvas: First few elements after conversion:', customElements.slice(0, 3).map(el => ({
+              id: el.id,
+              type: el.type,
+              x: el.x,
+              y: el.y,
+              width: el.width,
+              height: el.height,
+              hasLabel: !!el.label
+            })));
+            
+            // 更精确的比较：只比较真正变化的元素
+            // 而不是比较整个 JSON 字符串，避免因为坐标四舍五入导致的不必要更新
+            if (lastSyncedCustomElementsRef.current && lastSyncedCustomElementsRef.current.length === customElements.length) {
+              // 元素数量相同，逐个比较
+              let hasRealChange = false;
+              
+              for (let i = 0; i < customElements.length; i++) {
+                const current = customElements[i];
+                const last = lastSyncedCustomElementsRef.current.find(el => el.id === current.id);
+                
+                if (!last) {
+                  hasRealChange = true;
+                  break;
+                }
+                
+                // 比较关键属性（使用容差比较坐标）
+                const COORDINATE_TOLERANCE = 1;
+                const xDiff = Math.abs((current.x || 0) - (last.x || 0));
+                const yDiff = Math.abs((current.y || 0) - (last.y || 0));
+                const widthDiff = Math.abs((current.width || 0) - (last.width || 0));
+                const heightDiff = Math.abs((current.height || 0) - (last.height || 0));
+                const x1Diff = Math.abs((current.x1 || 0) - (last.x1 || 0));
+                const y1Diff = Math.abs((current.y1 || 0) - (last.y1 || 0));
+                const x2Diff = Math.abs((current.x2 || 0) - (last.x2 || 0));
+                const y2Diff = Math.abs((current.y2 || 0) - (last.y2 || 0));
+                
+                const hasCoordinateChange = xDiff > COORDINATE_TOLERANCE || 
+                                          yDiff > COORDINATE_TOLERANCE ||
+                                          widthDiff > COORDINATE_TOLERANCE ||
+                                          heightDiff > COORDINATE_TOLERANCE ||
+                                          x1Diff > COORDINATE_TOLERANCE ||
+                                          y1Diff > COORDINATE_TOLERANCE ||
+                                          x2Diff > COORDINATE_TOLERANCE ||
+                                          y2Diff > COORDINATE_TOLERANCE;
+                
+                const hasOtherChange = (
+                  current.strokeColor !== last.strokeColor ||
+                  current.backgroundColor !== last.backgroundColor ||
+                  current.stroke !== last.stroke ||
+                  current.fill !== last.fill ||
+                  current.strokeWidth !== last.strokeWidth ||
+                  current.fillStyle !== last.fillStyle ||
+                  current.strokeStyle !== last.strokeStyle ||
+                  (current.type === 'text' && current.text !== last.text) ||
+                  (current.text && current.text !== last.text) ||
+                  (current.label && current.label.text !== (last.label?.text)) ||
+                  current.startId !== last.startId ||
+                  current.endId !== last.endId
+                );
+                
+                if (hasCoordinateChange || hasOtherChange) {
+                  hasRealChange = true;
+                  break;
+                }
+              }
+              
+              if (!hasRealChange) {
+                // 没有真正变化，跳过同步
+                console.log('ExcalidrawCanvas: No significant changes detected, skipping sync');
+                return;
+              }
             }
             
             // 更新引用，避免循环更新
-            lastSyncedElementsRef.current = validElements;
+            lastSyncedElementsRef.current = elementsToProcess;
             lastSyncedCustomElementsRef.current = customElements;
             
-            // 通知父组件元素已变化
-            // 如果是撤销/重做操作，也需要同步，让 JSON 反映当前状态
-            if (onElementsChange && customElements.length > 0) {
+            // 通知父组件元素已变化（即使为空数组也要同步，表示所有元素被删除）
+            if (onElementsChange) {
               console.log('ExcalidrawCanvas: Elements changed by user, syncing to JSON:', customElements.length, 'elements');
               onElementsChange(customElements);
             }

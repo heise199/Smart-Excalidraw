@@ -61,7 +61,8 @@ async def health_check():
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """全局异常处理"""
-    logger.error(f"未处理的异常: {exc}", exc_info=True)
+    # 使用 % 格式化避免 f-string 中的 {} 冲突
+    logger.error("未处理的异常: %s", str(exc), exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"error": "内部服务器错误", "detail": str(exc)}
